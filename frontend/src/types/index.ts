@@ -1,0 +1,81 @@
+// UGVIS 共享类型定义
+
+export interface SeasonalGVI {
+  gvi_spring: number | null
+  gvi_summer: number | null
+  gvi_autumn: number | null
+  gvi_winter: number | null
+}
+
+export interface SeasonalNDVI {
+  ndvi_spring: number | null
+  ndvi_summer: number | null
+  ndvi_autumn: number | null
+  ndvi_winter: number | null
+}
+
+export interface SamplingPoint extends SeasonalGVI, SeasonalNDVI {
+  id: number
+  point_id: number
+  lat: number
+  lng: number
+  road_type: string | null
+  created_at: string | null
+}
+
+export interface SamplingPointList {
+  items: SamplingPoint[]
+  total: number
+  skip: number
+  limit: number
+}
+
+export interface MapPoint {
+  id: number
+  lat: number
+  lng: number
+  gvi: number | null
+  ndvi: number | null
+  road_type: string | null
+}
+
+export interface MapPointResponse {
+  points: MapPoint[]
+}
+
+export interface SeasonalStat {
+  season: string
+  avg_gvi: number
+  avg_ndvi: number
+  sample_count: number
+}
+
+export interface StatsResponse {
+  total_points: number
+  total_roads: number
+  road_types: Record<string, number>
+  seasonal: SeasonalStat[]
+}
+
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+
+export const SEASON_LABELS: Record<Season, string> = {
+  spring: '春季',
+  summer: '夏季',
+  autumn: '秋季',
+  winter: '冬季',
+}
+
+export const ROAD_TYPE_LABELS: Record<string, string> = {
+  rc1: '快速路',
+  rc2: '主干道',
+  rc3: '次干道',
+  rc4: '支路',
+}
+
+export const SEASON_GVI_FIELD: Record<Season, keyof SeasonalGVI> = {
+  spring: 'gvi_spring',
+  summer: 'gvi_summer',
+  autumn: 'gvi_autumn',
+  winter: 'gvi_winter',
+}

@@ -1,0 +1,149 @@
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+class HealthResponse(BaseModel):
+    message: str
+    version: str
+
+class SamplingPointResponse(BaseModel):
+    id: int
+    point_id: int
+    lat: float
+    lng: float
+    gvi_spring: Optional[float]
+    gvi_summer: Optional[float]
+    gvi_autumn: Optional[float]
+    gvi_winter: Optional[float]
+    ndvi_spring: Optional[float]
+    ndvi_summer: Optional[float]
+    ndvi_autumn: Optional[float]
+    ndvi_winter: Optional[float]
+    road_type: Optional[str]
+    created_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class SamplingPointList(BaseModel):
+    items: List[SamplingPointResponse]
+    total: int
+    skip: int
+    limit: int
+
+class RoadSegmentResponse(BaseModel):
+    id: int
+    name: Optional[str]
+    road_type: Optional[str]
+    geometry: Optional[str]
+    created_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class RoadSegmentList(BaseModel):
+    items: List[RoadSegmentResponse]
+    total: int
+    skip: int
+    limit: int
+
+class SeasonalStats(BaseModel):
+    season: str
+    avg_gvi: float
+    avg_ndvi: float
+    sample_count: int
+
+class StatsResponse(BaseModel):
+    total_points: int
+    total_roads: int
+    road_types: Dict[str, int]
+    seasonal: List[SeasonalStats]
+
+# === 季节分析相关 ===
+
+class BoxplotData(BaseModel):
+    season: str
+    min_val: float
+    q1: float
+    median: float
+    q3: float
+    max_val: float
+    outliers: List[float] = []
+
+class SeasonalSummary(BaseModel):
+    season: str
+    min_val: float
+    median: float
+    max_val: float
+    mean: float
+    std: float
+    cv: float
+    sample_count: int
+
+class CVPoint(BaseModel):
+    lat: float
+    lng: float
+    cv: float
+    mean_gvi: float
+    road_type: Optional[str] = None
+
+class StabilityStats(BaseModel):
+    stable: int
+    moderate: int
+    unstable: int
+    stable_pct: float
+    moderate_pct: float
+    unstable_pct: float
+
+class SeasonalAnalysisResponse(BaseModel):
+    boxplot: List[BoxplotData]
+    summary: List[SeasonalSummary]
+    cv_points: List[CVPoint]
+    stability: StabilityStats
+
+# === 空间分析相关 ===
+
+class ModelMetrics(BaseModel):
+    model_type: str
+    r2: float
+    adj_r2: float
+    rmse: float
+    aicc: float
+    ndvi_coef: str
+    intercept: str
+
+class LocalR2Point(BaseModel):
+    lat: float
+    lng: float
+    local_r2: float
+
+class AnalysisResponse(BaseModel):
+    models: List[ModelMetrics]
+    local_r2_points: List[LocalR2Point]
+    total_points_used: int
+
+# === 规划决策相关 ===
+
+class WeakArea(BaseModel):
+    id: int
+    point_id: int
+    lat: float
+    lng: float
+    gvi_winter: Optional[float]
+    gvi_spring: Optional[float]
+    gvi_summer: Optional[float]
+    gvi_autumn: Optional[float]
+    road_type: Optional[str]
+    priority: str
+    suggestion: str
+
+class PlanningStats(BaseModel):
+    high_priority: int
+    medium_priority: int
+    low_priority: int
+    estimated_trees: int
+    estimated_gvi_improvement: float
+
+class PlanningResponse(BaseModel):
+    stats: PlanningStats
+    weak_areas: List[WeakArea]
