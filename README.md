@@ -1,119 +1,157 @@
 # UGVIS - 城市绿视率分析系统
 
-基于季节性GVI数据的城市街道绿化品质空间评价与规划辅助系统。
+基于季节性 GVI 数据的城市街道绿化品质空间评价与规划辅助系统。
+
+**GitHub**: https://github.com/mu-nan-goood/ugvis-project
+
+---
+
+## 功能特性
+
+| 模块 | 说明 |
+|:---|:---|
+| 总览面板 | 系统关键指标、四季 GVI 分布统计 |
+| 地图可视化 | 采样点空间分布，支持四季 GVI 切换 |
+| 空间分析 | 道路类型 + GVI/NDVI 相关性分析 |
+| 季节分析 | 变异系数、稳定性分级、五数概括 |
+| 规划决策 | 绿化薄弱区识别、改造优先级排序 |
+| 数据管理 | 采样点查询、筛选、导出 |
+
+---
+
+## 技术栈
+
+**前端**: Vue 3 + TypeScript + Vite + Tailwind CSS + Leaflet + ECharts
+
+**后端**: FastAPI + SQLAlchemy + SQLite + Pandas
+
+---
 
 ## 项目结构
 
 ```
 ugvis-project/
-├── frontend/          # React + TypeScript 前端
-├── backend/           # FastAPI + PostgreSQL 后端
-├── data/              # 数据文件
-├── docker/            # Docker 配置
-└── scripts/           # 工具脚本
+├── backend/                 # FastAPI 后端
+│   ├── main.py             # 应用入口
+│   ├── models.py           # SQLAlchemy 数据模型
+│   ├── schemas.py          # Pydantic schemas
+│   ├── database.py         # 数据库连接
+│   ├── config.py           # 配置管理
+│   ├── routers/            # API 路由
+│   │   ├── statistics.py   # 统计端点
+│   │   ├── points.py       # 采样点端点
+│   │   ├── roads.py        # 道路端点
+│   │   ├── map.py          # 地图端点
+│   │   ├── seasonal_analysis.py  # 季节分析端点
+│   │   ├── spatial_analysis.py    # 空间分析端点
+│   │   └── planning.py     # 规划决策端点
+│   ├── ugvis.db            # SQLite 数据库
+│   └── requirements.txt
+├── frontend/                # Vue 3 前端
+│   ├── src/
+│   │   ├── pages/          # 页面组件
+│   │   ├── components/     # 通用组件
+│   │   ├── services/       # API 调用
+│   │   └── stores/         # 状态管理
+│   └── package.json
+├── docker/                  # Docker 配置
+│   ├── Dockerfile.backend
+│   ├── Dockerfile.frontend
+│   └── docker-compose.yml
+├── data/                    # 原始数据（不上传 Git）
+└── scripts/                 # 工具脚本
 ```
 
-## 快速开始
+---
 
-### 1. 使用 Docker Compose（推荐）
+## 快速启动
 
-```bash
-cd docker
+### 手动启动（推荐）
+
+**后端**:
+```powershell
+cd E:\ugvis-project\backend
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+python -m uvicorn main:app --reload --port 8000
+```
+
+**前端**（新窗口）:
+```powershell
+cd E:\ugvis-project\frontend
+npm install
+npm run dev
+```
+
+访问 http://localhost:5173
+
+### Docker Compose 启动
+
+```powershell
+cd E:\ugvis-project\docker
 docker-compose up -d
 ```
 
-这将启动：
-- PostgreSQL + PostGIS (端口 5432)
-- FastAPI 后端 (端口 8000)
-- React 前端 (端口 5173)
-
-### 2. 手动安装
-
-#### 后端
-
-```bash
-cd backend
-
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 运行
-python main.py
-```
-
-#### 前端
-
-```bash
-cd frontend
-
-# 安装依赖
-npm install
-
-# 开发服务器
-npm run dev
-
-# 构建
-npm run build
-```
-
-### 3. 导入数据
-
-```bash
-python scripts/import_data.py --csv /path/to/gvi_4seasons.csv
-```
-
-## 功能模块
-
-- **总览面板**: 系统关键指标和统计图表
-- **地图可视化**: 四季GVI空间分布，支持切换
-- **空间分析**: MGWR/GWR/LR模型结果展示
-- **季节分析**: 变异系数、稳定性分区
-- **规划决策**: 薄弱区识别、改造建议
-- **数据管理**: 数据查询、筛选、导出
-
-## 技术栈
-
-### 前端
-- React 18 + TypeScript
-- Vite (构建工具)
-- Tailwind CSS (样式)
-- Leaflet (地图)
-- ECharts (图表)
-- Zustand (状态管理)
-
-### 后端
-- FastAPI (Web框架)
-- SQLAlchemy (ORM)
-- GeoAlchemy2 (空间数据库)
-- PostgreSQL + PostGIS
-- Pandas (数据处理)
+---
 
 ## API 文档
 
-启动后端后访问: http://localhost:8000/docs
+后端启动后访问: http://localhost:8000/docs
 
-## 数据格式
+### 主要端点
 
-CSV文件应包含以下列：
-- `lat`, `lng`: 经纬度坐标
-- `gvi_spring`, `gvi_summer`, `gvi_autumn`, `gvi_winter`: 四季GVI值
-- `ndvi`: NDVI指数
-- `road_type`: 道路类型 (rc1-rc4)
+| 方法 | 路径 | 说明 |
+|:---|:---|:---|
+| GET | `/api/stats` | 全局统计摘要 |
+| GET | `/api/points` | 采样点列表（分页） |
+| GET | `/api/roads` | 道路统计列表 |
+| GET | `/api/map/points` | 地图采样点（采样） |
+| GET | `/api/seasonal-analysis` | 四季分析统计 |
+| GET | `/api/spatial-analysis` | 空间分析（按道路类型） |
+| GET | `/api/planning` | 规划决策数据 |
+
+---
+
+## 数据库
+
+- **类型**: SQLite (`backend/ugvis.db`)
+- **采样点**: 201,377 条（含四季 GVI/NDVI 值）
+- **道路段**: 40,006 条
+- **字段**: `rc1-rc4` 四类道路类型
+
+---
+
+## 开发说明
+
+### 环境要求
+
+- Python 3.10+
+- Node.js 18+
+- npm 9+
+
+### 数据字段说明
+
+| 字段 | 说明 |
+|:---|:---|
+| `lat`, `lng` | 经纬度坐标 |
+| `gvi_spring`, `gvi_summer`, `gvi_autumn`, `gvi_winter` | 四季绿视率 |
+| `ndvi_spring`, `ndvi_summer`, `ndvi_autumn`, `ndvi_winter` | 四季 NDVI |
+| `road_type` | 道路类型（rc1-rc4） |
+
+---
 
 ## 开发计划
 
 - [x] 项目基础架构
 - [x] 前端页面框架
-- [x] 后端API设计
-- [ ] 数据库导入脚本
-- [ ] MGWR模型集成
+- [x] 后端 API 设计
+- [x] 数据库导入（201,377 采样点）
+- [x] 四季 GVI/NDVI 分析
+- [x] 空间分析（道路类型分组）
+- [x] 规划决策模块
 - [ ] 用户认证
-- [ ] 数据可视化优化
 - [ ] 部署文档
+
+---
 
 ## 许可证
 
