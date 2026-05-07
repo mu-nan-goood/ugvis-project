@@ -1,0 +1,18 @@
+"""Agent 配置管理"""
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# LLM 配置
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.mimo.ai/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "mimo-pro")
+
+# UGVIS 后端配置
+UGVIS_API_URL = os.getenv("UGVIS_API_URL", "http://localhost:8000")
+
+# Agent 配置
+AGENT_PORT = int(os.getenv("AGENT_PORT", "8001"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.3"))
