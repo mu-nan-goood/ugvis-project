@@ -1,11 +1,14 @@
-﻿from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from config import settings
 
+# PostgreSQL 不需要 check_same_thread，SQLite 需要
+_connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False}
+    connect_args=_connect_args
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -38,6 +41,7 @@ _INDEXES = [
 ]
 
 # SQLite 的 CREATE INDEX IF NOT EXISTS 本身是幂等的，但用事务包裹确保兼容
+# PostgreSQL 下这些语句不会匹配任何索引名（pg 会报异常被忽略）
 with engine.begin() as conn:
     for idx_sql in _INDEXES:
         try:
