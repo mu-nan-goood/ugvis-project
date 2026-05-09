@@ -10,18 +10,26 @@ export default function GVIChart({ option, className = '' }: GVIChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
 
+  // 初始化：仅在组件挂载时执行一次
   useEffect(() => {
-    if (chartRef.current) {
-      chartInstance.current = echarts.init(chartRef.current)
-      chartInstance.current.setOption(option)
+    if (!chartRef.current) return
 
-      const handleResize = () => chartInstance.current?.resize()
-      window.addEventListener('resize', handleResize)
+    chartInstance.current = echarts.init(chartRef.current)
 
-      return () => {
-        window.removeEventListener('resize', handleResize)
-        chartInstance.current?.dispose()
-      }
+    const handleResize = () => chartInstance.current?.resize()
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chartInstance.current?.dispose()
+      chartInstance.current = null
+    }
+  }, []) // 空依赖 = 仅挂载时执行
+
+  // 更新：option 变化时用 setOption 更新（不销毁实例）
+  useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.setOption(option, { notMerge: true })
     }
   }, [option])
 

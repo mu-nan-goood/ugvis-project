@@ -105,6 +105,16 @@ export default function SeasonalAnalysis() {
     ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
     : cvPoints
 
+  // 动态计算地图边界（从实际数据推导，不再硬编码南京经纬度）
+  const cvLngs = sampledCV.map((p) => p.lng)
+  const cvLats = sampledCV.map((p) => p.lat)
+  const cvBounds = cvLngs.length > 0 ? {
+    minLng: Math.min(...cvLngs),
+    maxLng: Math.max(...cvLngs),
+    minLat: Math.min(...cvLats),
+    maxLat: Math.max(...cvLats),
+  } : null
+
   const cvOption: EChartsOption = {
     title: { text: '季节变异系数(CV)分布', left: 'center' },
     tooltip: {
@@ -119,8 +129,18 @@ export default function SeasonalAnalysis() {
       calculable: true,
       inRange: { color: ['#22c55e', '#fbbf24', '#ef4444'] },
     },
-    xAxis: { type: 'value', min: 118.5, max: 119.1, name: '经度' },
-    yAxis: { type: 'value', min: 31.8, max: 32.2, name: '纬度' },
+    xAxis: {
+      type: 'value',
+      min: cvBounds ? cvBounds.minLng - 0.05 : undefined,
+      max: cvBounds ? cvBounds.maxLng + 0.05 : undefined,
+      name: '经度',
+    },
+    yAxis: {
+      type: 'value',
+      min: cvBounds ? cvBounds.minLat - 0.05 : undefined,
+      max: cvBounds ? cvBounds.maxLat + 0.05 : undefined,
+      name: '纬度',
+    },
     series: [
       {
         type: 'scatter',

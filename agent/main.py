@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 
 from core import UGVISAgent
 from tools import TOOLS_DEFINITION
+from config import CORS_ORIGINS
 
 app = FastAPI(
     title="UGVIS AI Agent",
@@ -13,10 +14,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS 配置
+# CORS 配置：从 config.py 读取允许的来源列表
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
