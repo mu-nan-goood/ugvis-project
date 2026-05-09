@@ -59,4 +59,42 @@ export async function fetchPlanningWeakAreas() {
   return data
 }
 
+// ── 数据导入 ───────────────────────────────────────────
+
+export interface ImportError {
+  row: number
+  point_id?: number
+  message: string
+}
+
+export interface ImportResult {
+  success_count: number
+  error_count: number
+  total_rows: number
+  errors: ImportError[]
+}
+
+/**
+ * 上传 CSV 文件导入采样点数据
+ * @param file CSV 文件
+ * @param onProgress 上传进度回调（0-100）
+ */
+export async function importPoints(
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<ImportResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await api.post<ImportResult>('/points/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (ev) => {
+      if (onProgress && ev.total) {
+        onProgress(Math.round((ev.loaded * 100) / ev.total))
+      }
+    },
+  })
+  return data
+}
+
 export default api

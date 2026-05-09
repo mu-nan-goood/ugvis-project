@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -147,3 +148,16 @@ class PlanningStats(BaseModel):
 class PlanningResponse(BaseModel):
     stats: PlanningStats
     weak_areas: List[WeakArea]
+
+# === 数据导入相关 ===
+
+class ImportError(BaseModel):
+    row: int
+    point_id: Optional[int] = None
+    message: str
+
+class ImportResult(BaseModel):
+    success_count: int
+    error_count: int
+    total_rows: int
+    errors: List[ImportError] = []
