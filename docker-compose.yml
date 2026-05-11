@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ugvis-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/ugvis.db
+      - OPENCLAW_URL=http://openclaw:28789
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+      - OPENCLAW_TIMEOUT=120
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://frontend:80"]
+    volumes:
+      - ./data:/app/data
+    networks:
+      - ugvis-network
+    depends_on:
+      - openclaw
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ugvis-frontend
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    networks:
+      - ugvis-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: ugvis-openclaw
+    ports:
+      - "28789:28789"
+    environment:
+      - OPENCLAW_BIND=0.0.0.0:28789
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+    volumes:
+      - openclaw-data:/app/data
+    networks:
+      - ugvis-network
+    restart: unless-stopped
+
+networks:
+  ugvis-network:
+    driver: bridge
+
+volumes:
+  openclaw-data:
