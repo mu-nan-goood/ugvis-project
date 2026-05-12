@@ -33,7 +33,20 @@ API_BASES = {
 
 class LLMClient:
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=120.0)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """懒初始化 AsyncClient，避免模块导入时创建。"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=120.0)
+        return self._client
+
+    async def close(self):
+        """关闭 httpx 客户端，释放连接池。"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def generate_renovation_advice(
         self,
@@ -46,9 +59,9 @@ class LLMClient:
         user_prompt = self._build_prompt(areas, preferences)
 
         default_system_prompt = (
-            "You are an urban green planning expert. Based on weak area data, generate renovation advice.\n"
-            "First output Markdown, then a JSON code block at the end with: "
-            "route_plan, implementation_plan, budget_estimate, priority_areas."
+            "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。\n"
+            "先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含以下字段：\n"
+            "route_plan（路线规划）、implementation_plan（实施计划）、budget_estimate（预算估算）、priority_areas（优先改造区域）。"
         )
         system_prompt = system_prompt or default_system_prompt
 
@@ -71,10 +84,9 @@ class LLMClient:
                 f"- Priority: {preferences.get('priority', 'all')}"
             )
         return (
-            f"Based on the following weak urban green areas, generate detailed renovation advice.\n"
-            f"Total areas: {len(areas)}\n{areas_text}{pref_text}\n\n"
-            f"Provide: 1) Analysis and strategy, 2) Route plan, 3) Implementation phases, "
-            f"4) Budget estimate, 5) Priority area ranking."
+            f"请分析以下城市绿化薄弱区域，生成详细的改造建议。\n"
+            f"薄弱区域总数：{len(areas)}\n{areas_text}{pref_text}\n\n"
+            f"请提供：1) 分析与策略，2) 路线规划，3) 实施阶段，4) 预算估算，5) 优先改造区域排名。"
         )
 
     async def _call_api(
@@ -279,7 +291,7 @@ class LLMClient:
         if not user_prompt:
             user_prompt = self._build_prompt(areas, preferences)
 
-        default_system_prompt = "You are an urban green planning expert. Generate renovation advice based on the provided weak area data."
+        default_system_prompt = "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含：route_plan、implementation_plan、budget_estimate、priority_areas。"
         system_prompt = system_prompt or default_system_prompt
 
         if not llm_config or not llm_config.api_key:

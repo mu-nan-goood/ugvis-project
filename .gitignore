@@ -27,11 +27,14 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Data
-data/*.csv
-data/*.shp
-data/*.dbf
-data/*.shx
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Data (research data — too large for git)
+data/
 !data/.gitkeep
 
 # Environment
@@ -40,3 +43,7 @@ data/*.shx
 
 # Docker volumes
 docker/postgres_data/
+
+# Temp test files
+api_response*.json
+test_result*.json

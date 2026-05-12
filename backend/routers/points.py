@@ -149,8 +149,8 @@ async def import_points(
                 if val_str:
                     try:
                         val = float(val_str)
-                        if col.startswith("gvi") and not (0 <= val <= 1):
-                            errors.append(ImportError(row=row_num, point_id=point_id, message=f"{col}={val} 超出范围 [0, 1]"))
+                        if col.startswith("gvi") and not (0 <= val <= 100):
+                            errors.append(ImportError(row=row_num, point_id=point_id, message=f"{col}={val} 超出范围 [0, 100]"))
                             continue
                         if col.startswith("ndvi") and not (-1 <= val <= 1):
                             errors.append(ImportError(row=row_num, point_id=point_id, message=f"{col}={val} 超出范围 [-1, 1]"))

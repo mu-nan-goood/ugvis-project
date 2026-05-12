@@ -79,3 +79,17 @@ export const SEASON_GVI_FIELD: Record<Season, keyof SeasonalGVI> = {
   autumn: 'gvi_autumn',
   winter: 'gvi_winter',
 }
+
+// ── Map highlight / route ──────────────────────────────
+
+export interface HighlightPoint {
+  id: number          // map point id
+  lat: number
+  lng: number
+  label?: string      // optional label shown on map
+}
+
+export interface RouteSegment {
+  from: HighlightPoint
+  to: HighlightPoint
+}

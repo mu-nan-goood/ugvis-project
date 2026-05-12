@@ -59,6 +59,132 @@ export async function fetchPlanningWeakAreas() {
   return data
 }
 
+// ── AI / LLM 相关 ──────────────────────────────────────
+
+export interface LLMConfig {
+  provider: string
+  model?: string
+  api_key?: string   // 仅 custom provider 需要
+  api_base?: string  // 仅 custom provider 需要
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface ChatRequest {
+  message: string
+  history: ChatMessage[]
+  llm_config?: LLMConfig
+  preferences?: Record<string, any>
+}
+
+export interface RenovationAdviceRequest {
+  areas?: any[]
+  preferences?: Record<string, any>
+  llm_config?: LLMConfig
+  system_prompt?: string
+}
+
+/**
+ * 生成 AI 改造建议（非流式）
+ */
+export async function generateAdvice(request: RenovationAdviceRequest) {
+  const { data } = await api.post('/planning/advice', request)
+  return data
+}
+
+/**
+ * 流式生成 AI 改造建议（SSE）
+ */
+export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGenerator<any, void, unknown> {
+  const response = await fetch('/api/planning/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No response body')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      const match = line.match(/^data: (.+)$/m)
+      if (match) {
+        try {
+          yield JSON.parse(match[1])
+        } catch {
+          // ignore parse error
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 多轮对话（非流式）
+ */
+export async function chat(request: ChatRequest) {
+  const { data } = await api.post('/planning/chat', request)
+  return data
+}
+
+/**
+ * 流式多轮对话（SSE）
+ */
+export async function* streamChat(request: ChatRequest): AsyncGenerator<any, void, unknown> {
+  const response = await fetch('/api/planning/chat-stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No response body')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      const match = line.match(/^data: (.+)$/m)
+      if (match) {
+        try {
+          yield JSON.parse(match[1])
+        } catch {
+          // ignore parse error
+        }
+      }
+    }
+  }
+}
+
 // ── 数据导入 ───────────────────────────────────────────
 
 export interface ImportError {

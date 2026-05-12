@@ -1,23 +1,31 @@
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import MapView from './pages/MapView'
-import Analysis from './pages/Analysis'
-import SeasonalAnalysis from './pages/SeasonalAnalysis'
-import Planning from './pages/Planning'
-import DataManagement from './pages/DataManagement'
+import { lazy, Suspense } from 'react'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const MapView = lazy(() => import('./pages/MapView'))
+const Analysis = lazy(() => import('./pages/Analysis'))
+const SeasonalAnalysis = lazy(() => import('./pages/SeasonalAnalysis'))
+const Planning = lazy(() => import('./pages/Planning'))
+const DataManagement = lazy(() => import('./pages/DataManagement'))
+
+function Loading() {
+  return <div className="flex items-center justify-center h-64"><p className="text-gray-400">Loading...</p></div>
+}
 
 function App() {
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/map" element={<MapView />} />
-        <Route path="/analysis" element={<Analysis />} />
-        <Route path="/seasonal" element={<SeasonalAnalysis />} />
-        <Route path="/planning" element={<Planning />} />
-        <Route path="/data" element={<DataManagement />} />
-      </Routes>
+      <Suspense fallback={<Loading />}>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/map" element={<MapView />} />
+          <Route path="/analysis" element={<Analysis />} />
+          <Route path="/seasonal" element={<SeasonalAnalysis />} />
+          <Route path="/planning" element={<Planning />} />
+          <Route path="/data" element={<DataManagement />} />
+        </Routes>
+      </Suspense>
     </Layout>
   )
 }

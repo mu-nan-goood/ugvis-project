@@ -9,11 +9,18 @@ from config import settings
 from routers import health, points, stats, map, seasonal, analysis, planning
 
 
+try:
+    from backend.services.llm_client import llm_client
+except ImportError:
+    from services.llm_client import llm_client
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时建表，关闭时清理（保持原有行为不变）"""
+    """启动时建表，关闭时清理 LLM 客户端连接池。"""
     Base.metadata.create_all(bind=engine)
     yield
+    await llm_client.close()
 
 
 app = FastAPI(title="UGVIS API", version="0.2.0", lifespan=lifespan)
@@ -21,7 +28,14 @@ app = FastAPI(title="UGVIS API", version="0.2.0", lifespan=lifespan)
 # CORS（开发阶段允许本地前端）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://frontend:80",
+        "http://127.0.0.1:5173",
+        # Production domains — edit or remove as needed
+        # "https://your-production-domain.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

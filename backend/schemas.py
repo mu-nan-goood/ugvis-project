@@ -161,3 +161,49 @@ class ImportResult(BaseModel):
     error_count: int
     total_rows: int
     errors: List[ImportError] = []
+
+# === AI / LLM 相关 ===
+
+class LLMConfigRequest(BaseModel):
+    """前端只传 provider 和可选 model，API Key 由后端 .env 管理
+    
+    对于 custom provider，前端仍需传 api_key 和 api_base（用户自建服务）
+    """
+    provider: str = "deepseek"
+    model: Optional[str] = None
+    api_key: Optional[str] = None  # 仅 custom provider 需要
+    api_base: Optional[str] = None  # 仅 custom provider 需要
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessage] = []
+    llm_config: Optional[LLMConfigRequest] = None
+    preferences: Optional[Dict[str, Any]] = None
+
+class ChatStreamEvent(BaseModel):
+    type: str
+    content: Optional[str] = None
+    name: Optional[str] = None
+    arguments: Optional[Dict[str, Any]] = None
+    data: Optional[Any] = None
+    success: Optional[bool] = None
+    error: Optional[str] = None
+    structured: Optional[Dict[str, Any]] = None
+
+class RenovationAdviceRequest(BaseModel):
+    areas: Optional[List[Dict[str, Any]]] = None
+    preferences: Optional[Dict[str, Any]] = None
+    llm_config: Optional[LLMConfigRequest] = None
+    system_prompt: Optional[str] = None
+
+class RenovationAdviceResponse(BaseModel):
+    advice: str
+    route_plan: Optional[Any] = None
+    implementation_plan: Optional[Any] = None
+    budget_estimate: Optional[Any] = None
+    priority_areas: Optional[Any] = None
+    raw_response: Optional[str] = None
