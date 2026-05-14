@@ -1,9 +1,132 @@
 import axios from 'axios'
+import type { User, LoginRequest, RegisterRequest, AuthResponse } from '../types'
+
+const API_BASE = '/api'
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   timeout: 60000,
+  withCredentials: true, // 允许携带 cookie
 })
+
+// ── Token 管理 ─────────────────────────────────────────
+
+const ACCESS_TOKEN_KEY = 'ugvis_access_token'
+
+export function getAccessToken(): string | null {
+  return sessionStorage.getItem(ACCESS_TOKEN_KEY)
+}
+
+export function setAccessToken(token: string): void {
+  sessionStorage.setItem(ACCESS_TOKEN_KEY, token)
+}
+
+export function clearAccessToken(): void {
+  sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+}
+
+// ── 请求拦截器：自动注入 Bearer Token ───────────────────
+
+let isRefreshing = false
+let refreshQueue: Array<(token: string) => void> = []
+
+function processRefreshQueue(token: string) {
+  refreshQueue.forEach((cb) => cb(token))
+  refreshQueue = []
+}
+
+api.interceptors.request.use((config) => {
+  const token = getAccessToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// ── 响应拦截器：401 时自动刷新 Token ─────────────────────
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+
+    // 如果是 401 且未尝试过刷新，则尝试刷新
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // 已经在刷新中，将请求加入队列
+        return new Promise((resolve) => {
+          refreshQueue.push((token: string) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`
+            resolve(api(originalRequest))
+          })
+        })
+      }
+
+      originalRequest._retry = true
+      isRefreshing = true
+
+      try {
+        const { data } = await axios.post<AuthResponse>(
+          `${API_BASE}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        )
+        setAccessToken(data.access_token)
+        processRefreshQueue(data.access_token)
+        isRefreshing = false
+
+        // 重试原请求
+        originalRequest.headers.Authorization = `Bearer ${data.access_token}`
+        return api(originalRequest)
+      } catch (refreshError) {
+        isRefreshing = false
+        clearAccessToken()
+        // 刷新失败，重定向到登录页
+        window.location.href = '/auth?reason=session_expired'
+        return Promise.reject(refreshError)
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
+// ── 认证 API ───────────────────────────────────────────
+
+/** 登录 */
+export async function login(req: LoginRequest): Promise<AuthResponse> {
+  const { data } = await api.post<AuthResponse>('/auth/login', req)
+  setAccessToken(data.access_token)
+  return data
+}
+
+/** 注册 */
+export async function register(req: RegisterRequest): Promise<User> {
+  const { data } = await api.post<User>('/auth/register', req)
+  return data
+}
+
+/** 获取当前用户信息 */
+export async function getMe(): Promise<User> {
+  const { data } = await api.get<User>('/auth/me')
+  return data
+}
+
+/** 登出 */
+export async function logout(): Promise<void> {
+  try {
+    await api.post('/auth/logout')
+  } catch {
+    // 忽略错误
+  } finally {
+    clearAccessToken()
+  }
+}
+
+/** 检查是否已登录（同步）*/
+export function isAuthenticated(): boolean {
+  return !!getAccessToken()
+}
 
 // 统计数据
 export async function fetchStats() {
@@ -220,6 +343,76 @@ export async function importPoints(
       }
     },
   })
+  return data
+}
+
+// ── 建议质量反馈 ─────────────────────────────────────
+
+export interface FeedbackItem {
+  id: number
+  vote: string
+  comment?: string
+  advice_context?: string
+  area_ids?: string
+  season?: string
+  created_at: string
+}
+
+export interface FeedbackStats {
+  total: number
+  up_count: number
+  down_count: number
+  up_rate: number
+}
+
+export interface FeedbackSubmitData {
+  vote: 'up' | 'down'
+  comment?: string
+  advice_context?: string
+  area_ids?: string
+  season?: string
+}
+
+/** 提交反馈 */
+export async function submitFeedback(data: FeedbackSubmitData): Promise<FeedbackItem> {
+  const { data: result } = await api.post<FeedbackItem>('/feedback', data)
+  return result
+}
+
+/** 查询反馈列表 */
+export async function fetchFeedbackList(params?: {
+  skip?: number
+  limit?: number
+  vote?: string
+}): Promise<FeedbackItem[]> {
+  const { data } = await api.get<FeedbackItem[]>('/feedback', { params })
+  return data
+}
+
+/** 查询反馈统计 */
+export async function fetchFeedbackStats(): Promise<FeedbackStats> {
+  const { data } = await api.get<FeedbackStats>('/feedback/stats')
+  return data
+}
+
+/** 删除反馈 */
+export async function deleteFeedback(id: number): Promise<void> {
+  await api.delete(`/feedback/${id}`)
+}
+
+// ── 绿波路线规划 ─────────────────────────────────────
+
+import type { RouteCoord, RouteAnalysis, RouteComparison } from '../types'
+
+/** 分析路线 GVI */
+export async function analyzeRoute(coords: RouteCoord[]): Promise<RouteAnalysis> {
+  const { data } = await api.post<RouteAnalysis>('/routing/analyze', { coords })
+  return data
+}
+
+/** 路线对比（用户路线 vs 更绿路线） */
+export async function compareRoutes(coords: RouteCoord[]): Promise<RouteComparison> {
+  const { data } = await api.post<RouteComparison>('/routing/compare', { coords })
   return data
 }
 

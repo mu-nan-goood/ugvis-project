@@ -1,5 +1,44 @@
 // UGVIS 共享类型定义
 
+// ── 用户认证 ────────────────────────────────────────────
+
+export type UserRole = 'admin' | 'analyst' | 'user'
+
+export interface User {
+  id: number
+  username: string
+  email: string
+  role: UserRole
+  is_active: boolean
+  created_at: string
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface RegisterRequest {
+  username: string
+  email: string
+  password: string
+}
+
+export interface AuthResponse {
+  access_token: string
+  refresh_token?: string
+  token_type: string
+  expires_in: number
+}
+
+export interface TokenPayload {
+  sub: string
+  user_id: number
+  role: UserRole
+  exp: number
+  type: 'access' | 'refresh'
+}
+
 export interface SeasonalGVI {
   gvi_spring: number | null
   gvi_summer: number | null
@@ -92,4 +131,59 @@ export interface HighlightPoint {
 export interface RouteSegment {
   from: HighlightPoint
   to: HighlightPoint
+}
+
+// ── 绿波路线规划 ────────────────────────────────────────
+
+export interface RouteCoord {
+  lat: number
+  lng: number
+}
+
+export interface SegmentGVI {
+  from_idx: number
+  to_idx: number
+  length_m: number
+  sample_count: number
+  avg_gvi: {
+    spring: number | null
+    summer: number | null
+    autumn: number | null
+    winter: number | null
+  }
+}
+
+export interface RouteAnalysis {
+  total_length_m: number
+  total_samples: number
+  overall_gvi: {
+    spring: number | null
+    summer: number | null
+    autumn: number | null
+    winter: number | null
+  }
+  gvi_range: {
+    spring_min: number | null
+    spring_max: number | null
+    winter_min: number | null
+    winter_max: number | null
+  }
+  segments: SegmentGVI[]
+  best_segment: SegmentGVI | null
+  worst_segment: SegmentGVI | null
+  season_verdict: {
+    best_season: string | null
+    worst_season: string | null
+    gap: number | null
+  }
+}
+
+export interface RouteComparison {
+  user_route: RouteAnalysis & { coords: RouteCoord[] }
+  green_route: RouteAnalysis & { coords: RouteCoord[] }
+  comparison: {
+    length_diff_m: number
+    gvi_improvement_pct: number
+    verdict: string
+  }
 }

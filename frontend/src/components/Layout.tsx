@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Map,
@@ -10,8 +10,12 @@ import {
   Menu,
   X,
   Sun,
-  Moon
+  Moon,
+  User,
+  LogOut,
+  LogIn,
 } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
 
 const navItems = [
   { path: '/', label: '总览', icon: LayoutDashboard },
@@ -26,6 +30,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [darkMode, setDarkMode] = useState(false)
   const location = useLocation()
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  async function handleLogout() {
+    await logout()
+    navigate('/auth')
+  }
 
   return (
     <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
@@ -77,14 +88,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="p-2 rounded-lg hover:bg-gray-100"
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            <span className="text-sm text-gray-500">城市绿视率分析系统</span>
+            {user ? (
+              <>
+                <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
+                  <User className="w-4 h-4" />
+                  <span className="font-medium">{user.username}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${{ admin: 'bg-red-100 text-red-700', analyst: 'bg-blue-100 text-blue-700', user: 'bg-gray-200 text-gray-600' }}[user.role]`}>
+                    {user.role}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="退出登录"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">退出</span>
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/auth"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                <span className="hidden sm:inline">登录</span>
+              </Link>
+            )}
           </div>
         </header>
 
