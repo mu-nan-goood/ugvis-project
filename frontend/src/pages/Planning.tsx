@@ -6,8 +6,11 @@ import {
   fetchPlanningWeakAreas,
   streamAdvice,
   streamChat,
+  submitFeedback,
+  fetchFeedbackStats,
   type ChatMessage,
   type LLMConfig,
+  type FeedbackStats,
 } from '../utils/api'
 
 interface WeakArea {
@@ -89,6 +92,12 @@ export default function Planning() {
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceText, setAdviceText] = useState('')
 
+  // Feedback state
+  const [feedbackVote, setFeedbackVote] = useState<'up' | 'down' | null>(null)
+  const [feedbackComment, setFeedbackComment] = useState('')
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null)
+
   // Selected point for AI context
   const [selectedPoint, setSelectedPoint] = useState<WeakArea | null>(null)
 
@@ -127,6 +136,76 @@ export default function Planning() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
+
+  // ── Feedback Functions ────────────────────────────────
+
+  // 获取反馈统计
+  useEffect(() => {
+    fetchFeedbackStats()
+      .then(setFeedbackStats)
+      .catch(() => {})
+  }, [])
+
+  // 当建议内容变化时，重置反馈状态
+  useEffect(() => {
+    setFeedbackVote(null)
+    setFeedbackComment('')
+  }, [adviceText])
+
+  async function handleFeedbackVote(vote: 'up' | 'down') {
+    if (feedbackSubmitting) return
+    setFeedbackSubmitting(true)
+    try {
+      await submitFeedback({
+        vote,
+        advice_context: adviceText.substring(0, 500),
+        area_ids: weakAreas.slice(0, 20).map((a) => String(a.point_id)).join(','),
+      })
+      setFeedbackVote(vote)
+      // 刷新统计
+      fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
+    } catch (err) {
+      console.error('Feedback submit failed:', err)
+    } finally {
+      setFeedbackSubmitting(false)
+    }
+  }
+
+  async function handleFeedbackCommentSubmit() {
+    if (!feedbackComment.trim() || feedbackSubmitting) return
+    if (!feedbackVote) {
+      // 先投up票
+      setFeedbackVote('up')
+      try {
+        await submitFeedback({
+          vote: 'up',
+          comment: feedbackComment.trim(),
+          advice_context: adviceText.substring(0, 500),
+          area_ids: weakAreas.slice(0, 20).map((a) => String(a.point_id)).join(','),
+        })
+        fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
+      } catch (err) {
+        console.error('Feedback submit failed:', err)
+      }
+      setFeedbackComment('')
+      return
+    }
+    setFeedbackSubmitting(true)
+    try {
+      await submitFeedback({
+        vote: feedbackVote,
+        comment: feedbackComment.trim(),
+        advice_context: adviceText.substring(0, 500),
+        area_ids: weakAreas.slice(0, 20).map((a) => String(a.point_id)).join(','),
+      })
+      setFeedbackComment('')
+      fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
+    } catch (err) {
+      console.error('Feedback submit failed:', err)
+    } finally {
+      setFeedbackSubmitting(false)
+    }
+  }
 
   // ── Navigation to map ────────────────────────────────
   function openInMap(area: WeakArea) {
@@ -357,7 +436,76 @@ export default function Planning() {
             点击&quot;生成建议&quot;获取 AI 分析的绿化改造方案。
           </p>
         )}
-      </div>
+
+        {/* Feedback UI - 建议质量反馈 */}
+        {adviceText && !adviceLoading && (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            {/* 反馈统计 */}
+            {feedbackStats && feedbackStats.total > 0 && (
+              <div className="flex items-center gap-3 mb-2 text-xs text-gray-500">
+                <span>已收集 {feedbackStats.total} 条反馈</span>
+                <span className="text-green-600 font-medium">
+                  好评率 {Math.round(feedbackStats.up_rate * 100)}%
+                </span>
+                <span>（👍 {feedbackStats.up_count} / 👎 {feedbackStats.down_count}）</span>
+              </div>
+            )}
+
+            {/* 反馈按钮 */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-gray-600 mr-1">该建议：</span>
+              <button
+                onClick={() => handleFeedbackVote('up')}
+                disabled={feedbackSubmitting || !!feedbackVote}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  feedbackVote === 'up'
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-gray-50 hover:bg-green-50 text-gray-600 border border-gray-200'
+                } disabled:opacity-60`}
+              >
+                👍 有用
+              </button>
+              <button
+                onClick={() => handleFeedbackVote('down')}
+                disabled={feedbackSubmitting || !!feedbackVote}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  feedbackVote === 'down'
+                    ? 'bg-red-100 text-red-700 border border-red-300'
+                    : 'bg-gray-50 hover:bg-red-50 text-gray-600 border border-gray-200'
+                } disabled:opacity-60`}
+              >
+                👎 不满意
+              </button>
+              {feedbackVote && (
+                <span className="text-xs text-green-600 ml-1">✓ 已反馈，感谢！</span>
+              )}
+
+              {/* 追加文字反馈 */}
+              <div className="flex items-center gap-1 ml-auto">
+                <input
+                  type="text"
+                  value={feedbackComment}
+                  onChange={(e) => setFeedbackComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleFeedbackCommentSubmit()
+                    }
+                  }}
+                  placeholder="可选：补充意见"
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:ring-1 focus:ring-green-400"
+                />
+                <button
+                  onClick={handleFeedbackCommentSubmit}
+                  disabled={!feedbackComment.trim() || feedbackSubmitting}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 rounded-lg text-sm transition-colors"
+                >
+                  发送
+                </button>
+              </div>
+            </div>
+          </div>
+        )}</div>
 
       {/* Stats Cards */}
       {stats && (
