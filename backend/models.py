@@ -70,3 +70,36 @@ class SeasonalMetric(Base):
     std_ndvi = Column(Float)
     correlation = Column(Float)
     sample_count = Column(Integer)
+
+
+class AdviceFeedback(Base):
+    """用户对 AI 改造建议的反馈记录"""
+    __tablename__ = "advice_feedback"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    # 关联的建议上下文（可选：可以是对应哪个区域/哪个advice）
+    advice_context = Column(Text, nullable=True)  # 建议内容的摘要或原始 JSON
+    # 反馈类型: 'up' (👍有用) 或 'down' (👎无用)
+    vote = Column(String(10), nullable=False)  # 'up' | 'down'
+    # 可选的文字反馈
+    comment = Column(Text, nullable=True)
+    # 关联的优先区域 ID（如果有）
+    area_ids = Column(String(200), nullable=True)  # 逗号分隔的 point_id 列表
+    # 季节
+    season = Column(String(20), nullable=True)
+    # 创建时间
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class User(Base):
+    """系统用户表"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(100), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(20), default="analyst")  # admin | analyst | guest
+    is_active = Column(Integer, default=1)  # 1=active, 0=inactive
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

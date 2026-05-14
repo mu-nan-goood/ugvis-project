@@ -13,6 +13,8 @@ from schemas import (
     PlanningResponse, PlanningStats, WeakArea,
     ChatRequest, RenovationAdviceRequest, RenovationAdviceResponse,
 )
+from services.auth import get_current_user
+from schemas import UserResponse
 
 try:
     from backend.services.llm_client import llm_client
@@ -31,15 +33,29 @@ router = APIRouter(prefix="/api/planning", tags=["Planning"])
 
 
 def _resolve_llm_config(llm_config: Optional[Any]) -> Any:
-    """解析 LLM 配置：优先前端传入（仅 custom 需 api_key），否则用服务端 .env 配置。"""
+    """
+    解析 LLM 配置：
+    - custom provider: 使用前端传入的 api_key（用户自建服务，风险自担）
+    - 其他 provider: 仅使用服务端 .env 中存储的 Key，拒绝前端传来的 Key
+
+    安全策略：非 custom provider 不接受前端 api_key，防止 Key 泄露风险。
+    """
     from schemas import LLMConfigRequest
 
-    # 1. 前端传了 custom provider 且带 api_key → 直接用
+    # 1. custom provider + 前端传了 api_key → 直接用（用户自建服务）
     if llm_config and llm_config.provider == "custom" and llm_config.api_key:
         return llm_config
 
-    # 2. 其他 provider → 用服务端存储的 key
-    provider = llm_config.provider if llm_config else settings.llm_default_provider
+    # ⚠️ 安全检查：非 custom provider 禁止使用前端传来的 api_key
+    if llm_config and llm_config.api_key and llm_config.provider != "custom":
+        logger.warning(
+            f"[SECURITY] Non-custom provider '{llm_config.provider}' received api_key from frontend. "
+            f"Ignoring it. Configure the key in backend .env instead."
+        )
+        # 不使用前端 Key，继续走服务端 Key 流程
+
+    # 2. 其他 provider → 强制使用服务端 .env 存储的 Key
+    provider = (llm_config.provider if llm_config else settings.llm_default_provider)
     server_key = settings.get_api_key_for_provider(provider)
 
     if server_key:
@@ -50,11 +66,7 @@ def _resolve_llm_config(llm_config: Optional[Any]) -> Any:
             api_base=llm_config.api_base if llm_config else None,
         )
 
-    # 3. 前端传了 api_key（向后兼容）
-    if llm_config and llm_config.api_key:
-        return llm_config
-
-    # 4. 都没有 → 报错
+    # 3. 服务端未配置 Key → 报错
     return None
 
 _ROAD_SUGGESTIONS = {
@@ -168,6 +180,7 @@ def get_planning(db: Session = Depends(get_db)):
 async def generate_advice(
     request: RenovationAdviceRequest,
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """Generate AI renovation advice (non-streaming)."""
     try:
@@ -194,6 +207,9 @@ async def generate_advice(
             preferences=request.preferences,
             llm_config=llm_config,
             system_prompt=request.system_prompt,
+            retrieve_knowledge=request.retrieve_knowledge,
+            embedding_api_key=llm_config.api_key if llm_config else None,
+            embedding_base_url=llm_config.api_base if llm_config else None,
         )
 
         return RenovationAdviceResponse(
@@ -216,6 +232,7 @@ async def generate_advice(
 async def stream_advice(
     request: RenovationAdviceRequest,
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """Stream AI renovation advice (SSE)."""
     async def event_generator():
@@ -241,6 +258,9 @@ async def stream_advice(
                 preferences=request.preferences,
                 llm_config=llm_config,
                 system_prompt=request.system_prompt,
+                retrieve_knowledge=request.retrieve_knowledge,
+                embedding_api_key=llm_config.api_key if llm_config else None,
+                embedding_base_url=llm_config.api_base if llm_config else None,
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
 
@@ -265,6 +285,7 @@ async def stream_advice(
 async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """Multi-turn chat with AI (non-streaming)."""
     try:
@@ -304,6 +325,7 @@ async def chat(
 async def chat_stream(
     request: ChatRequest,
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """Multi-turn chat with AI (SSE streaming)."""
     async def event_generator():
@@ -348,6 +370,6 @@ async def chat_stream(
 
 
 @router.get("/tools")
-def get_tools():
+def get_tools(current_user: UserResponse = Depends(get_current_user)):
     """Get available tool schemas for Function Calling."""
     return {"tools": get_tool_schemas()}

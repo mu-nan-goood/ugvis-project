@@ -17,10 +17,23 @@ class Settings(BaseSettings):
     # Custom LLM (user provides their own base_url + api_key)
     custom_llm_api_key: Optional[str] = None
     custom_llm_base_url: Optional[str] = None
+
+    # Embedding Configuration (for RAG knowledge base)
+    embedding_api_base: Optional[str] = None  # e.g. https://api.deepseek.com/v1
     
     # OpenClaw Configuration
     openclaw_url: str = "http://localhost:28789"
     openclaw_token: Optional[str] = None
+    
+    # JWT Configuration
+    jwt_secret_key: str = "your-secret-key-change-in-production"  # 必须从 .env 读取，禁止硬编码
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 15
+    jwt_refresh_token_expire_days: int = 7
+    
+    # Initial admin user (created on first startup if not exists)
+    init_admin_username: Optional[str] = None
+    init_admin_password: Optional[str] = None
     
     class Config:
         env_file = ".env"

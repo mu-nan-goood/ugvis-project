@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database import get_db
 from models import SamplingPoint
+from services.auth import get_current_user, require_role
+from schemas import UserResponse
 from schemas import SamplingPointResponse, SamplingPointList, ImportResult, ImportError
 from utils import get_gvi_col
 
@@ -61,6 +63,7 @@ _VALID_ROAD_TYPES = {"rc1", "rc2", "rc3", "rc4"}
 async def import_points(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(require_role(["admin"])),
 ):
     """
     导入 CSV 格式的采样点数据。

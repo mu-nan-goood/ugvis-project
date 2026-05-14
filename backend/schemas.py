@@ -199,6 +199,7 @@ class RenovationAdviceRequest(BaseModel):
     preferences: Optional[Dict[str, Any]] = None
     llm_config: Optional[LLMConfigRequest] = None
     system_prompt: Optional[str] = None
+    retrieve_knowledge: bool = True  # RAG: 是否检索历史高好评建议
 
 class RenovationAdviceResponse(BaseModel):
     advice: str
@@ -207,3 +208,80 @@ class RenovationAdviceResponse(BaseModel):
     budget_estimate: Optional[Any] = None
     priority_areas: Optional[Any] = None
     raw_response: Optional[str] = None
+
+# === 建议质量反馈相关 ===
+
+class AdviceFeedbackCreate(BaseModel):
+    """提交反馈时的请求体"""
+    vote: str  # 'up' | 'down'
+    comment: Optional[str] = None
+    advice_context: Optional[str] = None  # 建议内容摘要
+    area_ids: Optional[str] = None  # 逗号分隔的 point_id
+    season: Optional[str] = None
+
+
+class AdviceFeedbackResponse(BaseModel):
+    id: int
+    vote: str
+    comment: Optional[str]
+    advice_context: Optional[str]
+    area_ids: Optional[str]
+    season: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AdviceFeedbackStats(BaseModel):
+    total: int
+    up_count: int
+    down_count: int
+    up_rate: float
+
+
+# === 认证相关 ===
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+    user_id: Optional[int] = None
+    role: Optional[str] = None
+
+
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str = "analyst"  # admin | analyst | guest
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    role: str
+    is_active: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LoginRequest(BaseModel):
+    username: str  # 可传 username 或 email
+    password: str
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class PasswordChangeRequest(BaseModel):
+    old_password: str
+    new_password: str
