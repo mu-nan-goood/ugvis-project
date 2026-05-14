@@ -1,22 +1,28 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { MapPoint, Season } from '../types'
+import type { MapPoint, Season, RouteCoord } from '../types'
 
 interface GVIMapProps {
   points: MapPoint[]
   season: Season
   className?: string
-  /** 要高亮的 map point ids（蓝色高亮 + 脉冲动画） */
   highlightIds?: number[]
-  /** 按顺序排列的 point ids，用于绘制路线（紫色虚线） */
   highlightRoute?: number[]
-  /** 点击普通点位时的回调（不含高亮点） */
-  onPointClick?: (point: MapPoint) => void
-  /** 点击高亮点时的回调 */
-  onHighlightClick?: (id: number) => void
-  /** 初始中心坐标（无高亮点时使用） */
   initialCenter?: { lat: number; lng: number }
+  onPointClick?: (point: MapPoint) => void
+  onHighlightClick?: (id: number) => void
+
+  // 路线规划模式
+  planningMode?: boolean
+  /** 当前绘制的路点 */
+  routeWaypoints?: RouteCoord[]
+  /** 额外高亮路线坐标 */
+  extraRouteCoords?: RouteCoord[]
+  /** 额外路线颜色 */
+  extraRouteColor?: string
+  /** 地图点击回调 */
+  onMapClick?: (lat: number, lng: number) => void
 }
 
 export default function GVIMap({
@@ -28,28 +34,33 @@ export default function GVIMap({
   onPointClick,
   onHighlightClick,
   initialCenter,
+  planningMode = false,
+  routeWaypoints = [],
+  extraRouteCoords = [],
+  extraRouteColor = '#16a34a',
+  onMapClick,
 }: GVIMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const leafletMap = useRef<L.Map | null>(null)
   const markersLayer = useRef<L.LayerGroup | null>(null)
   const highlightLayer = useRef<L.LayerGroup | null>(null)
   const routeLayer = useRef<L.LayerGroup | null>(null)
+  const planningLayer = useRef<L.LayerGroup | null>(null)
+  const extraRouteLayer = useRef<L.LayerGroup | null>(null)
 
-  // Build id→point lookup for route
   const pointById = useRef<Map<number, MapPoint>>(new Map())
   useEffect(() => {
     pointById.current = new Map(points.map((p) => [p.id, p]))
   }, [points])
 
-  // Build highlight set
   const highlightSet = useRef<Set<number>>(new Set(highlightIds))
   useEffect(() => {
     highlightSet.current = new Set(highlightIds)
   }, [highlightIds])
 
-  // ─── Map initialisation (once) ───────────────────────
+  // ─── Map initialisation ──────────────────────────────
   useEffect(() => {
-    if (!mapRef.current) return
+    if (!mapRef.current || leafletMap.current) return
 
     leafletMap.current = L.map(mapRef.current).setView([32.05, 118.78], 11)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -59,6 +70,15 @@ export default function GVIMap({
     markersLayer.current = L.layerGroup().addTo(leafletMap.current)
     highlightLayer.current = L.layerGroup().addTo(leafletMap.current)
     routeLayer.current = L.layerGroup().addTo(leafletMap.current)
+    planningLayer.current = L.layerGroup().addTo(leafletMap.current)
+    extraRouteLayer.current = L.layerGroup().addTo(leafletMap.current)
+
+    // Map click handler for planning mode
+    leafletMap.current.on('click', (e: L.LeafletMouseEvent) => {
+      if (planningMode && onMapClick) {
+        onMapClick(e.latlng.lat, e.latlng.lng)
+      }
+    })
 
     return () => {
       if (leafletMap.current) {
@@ -66,7 +86,14 @@ export default function GVIMap({
         leafletMap.current = null
       }
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planningMode, onMapClick])
+
+  // ─── Cursor style ────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current) return
+    mapRef.current.style.cursor = planningMode ? 'crosshair' : ''
+  }, [planningMode])
 
   // ─── Normal markers ──────────────────────────────────
   useEffect(() => {
@@ -74,7 +101,7 @@ export default function GVIMap({
     markersLayer.current.clearLayers()
 
     points.forEach((point) => {
-      if (highlightSet.current.has(point.id)) return // skip highlights
+      if (highlightSet.current.has(point.id)) return
       const gvi = point.gvi
       if (gvi == null) return
 
@@ -107,7 +134,7 @@ export default function GVIMap({
     })
   }, [points, season, highlightIds, onPointClick])
 
-  // ─── Highlight markers (blue + pulse) ─────────────────
+  // ─── Highlight markers ───────────────────────────────
   useEffect(() => {
     if (!highlightLayer.current || !leafletMap.current) return
     highlightLayer.current.clearLayers()
@@ -115,32 +142,16 @@ export default function GVIMap({
     const highlightPoints = points.filter((p) => highlightSet.current.has(p.id))
     if (highlightPoints.length === 0) return
 
-    // Center on first highlight
     leafletMap.current.setView([highlightPoints[0].lat, highlightPoints[0].lng], 14, {
       animate: true,
     })
 
     highlightPoints.forEach((point) => {
-      // Pulsing blue marker
       const pulseIcon = L.divIcon({
         html: `
-          <div style="
-            position:relative;
-            width:20px;height:20px;
-          ">
-            <div style="
-              position:absolute;inset:-4px;
-              border-radius:50%;
-              background:rgba(59,130,246,0.3);
-              animation:pulse-ring 1.5s ease-out infinite;
-            "></div>
-            <div style="
-              position:absolute;inset:2px;
-              border-radius:50%;
-              background:#3b82f6;
-              border:2px solid #fff;
-              box-shadow:0 2px 6px rgba(59,130,246,0.5);
-            "></div>
+          <div style="position:relative;width:20px;height:20px">
+            <div style="position:absolute;inset:-4px;border-radius:50%;background:rgba(59,130,246,0.3);animation:pulse-ring 1.5s ease-out infinite"></div>
+            <div style="position:absolute;inset:2px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 2px 6px rgba(59,130,246,0.5)"></div>
           </div>
           <style>@keyframes pulse-ring{0%{transform:scale(0.8);opacity:1}100%{transform:scale(1.8);opacity:0}}</style>
         `,
@@ -150,10 +161,9 @@ export default function GVIMap({
       })
 
       const marker = L.marker([point.lat, point.lng], { icon: pulseIcon })
-
       marker.bindPopup(`
         <div style="min-width:150px">
-          <p><strong>\u{1F4CD} 薄弱点 ${point.id}</strong></p>
+          <p><strong>📌 薄弱点 ${point.id}</strong></p>
           <p>GVI: ${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</p>
           <p>道路类型: ${point.road_type || 'N/A'}</p>
         </div>
@@ -167,7 +177,7 @@ export default function GVIMap({
     })
   }, [points, highlightIds, onHighlightClick])
 
-  // ─── Route drawing ──────────────────────────────────
+  // ─── Route drawing ───────────────────────────────────
   useEffect(() => {
     if (!routeLayer.current || !leafletMap.current) return
     routeLayer.current.clearLayers()
@@ -182,7 +192,6 @@ export default function GVIMap({
 
     if (routePoints.length < 2) return
 
-    // Purple dashed line
     const polyline = L.polyline(routePoints, {
       color: '#8b5cf6',
       weight: 3,
@@ -191,19 +200,9 @@ export default function GVIMap({
     })
     routeLayer.current.addLayer(polyline)
 
-    // Numbered icons along route
     routePoints.forEach((latlng, idx) => {
       const numIcon = L.divIcon({
-        html: `<div style="
-          background:#8b5cf6;
-          color:#fff;
-          width:22px;height:22px;
-          border-radius:50%;
-          display:flex;align-items:center;justify-content:center;
-          font-size:11px;font-weight:bold;
-          border:2px solid #fff;
-          box-shadow:0 2px 4px rgba(0,0,0,0.3);
-        ">${idx + 1}</div>`,
+        html: `<div style="background:#8b5cf6;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)">${idx + 1}</div>`,
         className: '',
         iconAnchor: [11, 11],
       })
@@ -211,15 +210,96 @@ export default function GVIMap({
       routeLayer.current?.addLayer(marker)
     })
 
-    // Fit route in view
     const bounds = L.latLngBounds(routePoints)
     leafletMap.current.fitBounds(bounds, { padding: [40, 40], animate: true })
   }, [highlightRoute])
 
-  // ─── Fit bounds / center when no highlight/route ────
+  // ─── Planning waypoints ──────────────────────────────
+  useEffect(() => {
+    if (!planningLayer.current) return
+    planningLayer.current.clearLayers()
+
+    if (routeWaypoints.length === 0) return
+
+    const latlngs: L.LatLng[] = []
+
+    routeWaypoints.forEach((wp, idx) => {
+      latlngs.push(L.latLng(wp.lat, wp.lng))
+
+      // Numbered waypoint marker
+      const wpIcon = L.divIcon({
+        html: `<div style="
+          background:#059669;color:#fff;
+          width:26px;height:26px;
+          border-radius:50%;
+          display:flex;align-items:center;justify-content:center;
+          font-size:12px;font-weight:bold;
+          border:3px solid #fff;
+          box-shadow:0 2px 8px rgba(0,0,0,0.3);
+        ">${idx + 1}</div>`,
+        className: '',
+        iconAnchor: [13, 13],
+      })
+
+      const marker = L.marker([wp.lat, wp.lng], { icon: wpIcon })
+      marker.bindPopup(`路点 ${idx + 1}<br/>${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}`)
+      planningLayer.current?.addLayer(marker)
+    })
+
+    // Draw line connecting waypoints
+    if (latlngs.length >= 2) {
+      const polyline = L.polyline(latlngs, {
+        color: '#059669',
+        weight: 4,
+        opacity: 0.8,
+      })
+      planningLayer.current.addLayer(polyline)
+
+      // Fit waypoints in view
+      const bounds = L.latLngBounds(latlngs)
+      leafletMap.current?.fitBounds(bounds, { padding: [60, 60], animate: true })
+    }
+  }, [routeWaypoints])
+
+  // ─── Extra route (green route) ──────────────────────
+  useEffect(() => {
+    if (!extraRouteLayer.current) return
+    extraRouteLayer.current.clearLayers()
+
+    if (extraRouteCoords.length < 2) return
+
+    const latlngs = extraRouteCoords.map((c) => L.latLng(c.lat, c.lng))
+
+    const polyline = L.polyline(latlngs, {
+      color: extraRouteColor,
+      weight: 3,
+      dashArray: '6 4',
+      opacity: 0.7,
+    })
+    extraRouteLayer.current.addLayer(polyline)
+
+    // Start/end markers
+    const startIcon = L.divIcon({
+      html: '<div style="background:#059669;color:#fff;width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)">🟢</div>',
+      className: '',
+      iconAnchor: [8, 8],
+    })
+    const endIcon = L.divIcon({
+      html: '<div style="background:#dc2626;color:#fff;width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)">🔴</div>',
+      className: '',
+      iconAnchor: [8, 8],
+    })
+
+    L.marker([latlngs[0].lat, latlngs[0].lng], { icon: startIcon }).addTo(extraRouteLayer.current)
+    if (latlngs.length > 1) {
+      L.marker([latlngs[latlngs.length - 1].lat, latlngs[latlngs.length - 1].lng], { icon: endIcon }).addTo(extraRouteLayer.current)
+    }
+  }, [extraRouteCoords, extraRouteColor])
+
+  // ─── Fit bounds / center ─────────────────────────────
   useEffect(() => {
     if (!leafletMap.current || points.length === 0) return
-    // Prefer initCenter if provided
+    if (routeWaypoints.length > 0) return // planning mode handles its own fit
     if (initialCenter) {
       leafletMap.current.setView([initialCenter.lat, initialCenter.lng], 14, { animate: true })
       return
@@ -227,7 +307,7 @@ export default function GVIMap({
     if (highlightIds.length > 0 || highlightRoute.length > 0) return
     const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number]))
     leafletMap.current.fitBounds(bounds, { padding: [20, 20] })
-  }, [points, season, highlightIds, highlightRoute, initialCenter])
+  }, [points, season, highlightIds, highlightRoute, initialCenter, routeWaypoints])
 
   return <div ref={mapRef} className={`w-full h-full rounded-lg ${className}`} />
 }
