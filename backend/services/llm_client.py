@@ -48,21 +48,92 @@ class LLMClient:
             await self._client.aclose()
             self._client = None
 
+
+
+    # ─── RAG: Knowledge Retrieval ─────────────────────────────────────────────
+
+    async def _retrieve_knowledge_context(
+        self,
+        areas: List[Dict],
+        preferences: Optional[Dict],
+        embedding_api_key: Optional[str],
+        embedding_base_url: Optional[str],
+        top_k: int = 3,
+    ) -> str:
+        """
+        Retrieve relevant historical advice from ChromaDB and format as context string.
+        Returns empty string if retrieval is disabled or ChromaDB is unavailable.
+        """
+        if not embedding_api_key:
+            logger.debug("No embedding API key, skipping RAG retrieval")
+            return ""
+
+        # Build query text from areas + preferences
+        query_parts = [f"分析 {len(areas)} 个城市绿化薄弱区域"]
+        for a in areas[:5]:
+            query_parts.append(
+                f"({a.get('lat', 0):.4f}, {a.get('lng', 0):.4f}) "
+                f"道路类型:{a.get('road_type', '未知')} "
+                f"冬季GVI:{a.get('gvi_winter', 'N/A')}%"
+            )
+        if preferences:
+            query_parts.append(f"用户偏好:{preferences.get('focus', 'gvi_improvement')}")
+        query = " ".join(query_parts)
+
+        try:
+            from services.knowledge_base import retrieve_relevant_advice
+            records = await retrieve_relevant_advice(
+                query=query,
+                top_k=top_k,
+                embedding_api_key=embedding_api_key,
+                embedding_base_url=embedding_base_url,
+            )
+            if not records:
+                return ""
+
+            lines = ["## 历史成功改造案例参考（检索增强生成/RAG）"]
+            for i, rec in enumerate(records, 1):
+                sim = max(0.0, 1.0 - (rec.get("distance") or 1.0))
+                lines.append(f"\n### 案例 {i}（相似度 {sim:.0%}）")
+                lines.append(rec.get("advice_context") or "")
+                advice_text = rec.get("advice_text") or ""
+                if advice_text:
+                    lines.append(f"具体方案摘要: {advice_text[:200]}")
+            logger.info(f"RAG retrieved {len(records)} relevant historical advice")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning(f"RAG retrieval failed: {e}")
+            return ""
     async def generate_renovation_advice(
         self,
         areas: List[Dict],
         preferences: Optional[Dict] = None,
         llm_config: Optional[LLMConfig] = None,
         system_prompt: Optional[str] = None,
+        retrieve_knowledge: bool = True,
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
     ) -> Dict:
-        """Generate renovation advice, return structured data."""
+        """Generate renovation advice, return structured data. Supports RAG."""
         user_prompt = self._build_prompt(areas, preferences)
+
+        # RAG: retrieve relevant historical advice
+        rag_context = ""
+        if retrieve_knowledge:
+            rag_context = await self._retrieve_knowledge_context(
+                areas, preferences, embedding_api_key, embedding_base_url, top_k=3
+            )
 
         default_system_prompt = (
             "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。\n"
             "先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含以下字段：\n"
             "route_plan（路线规划）、implementation_plan（实施计划）、budget_estimate（预算估算）、priority_areas（优先改造区域）。"
         )
+        if rag_context:
+            default_system_prompt = (
+                default_system_prompt.rstrip() + "\n\n" + rag_context + "\n"
+                "重要：请参考上面的历史成功案例，但要因地制宜，不要照搬。"
+            )
         system_prompt = system_prompt or default_system_prompt
 
         response = await self._call_api(
@@ -286,12 +357,27 @@ class LLMClient:
         llm_config: Optional[LLMConfig] = None,
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
+        retrieve_knowledge: bool = True,
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
-        """Stream renovation advice, token by token."""
+        """Stream renovation advice with RAG support, token by token."""
         if not user_prompt:
             user_prompt = self._build_prompt(areas, preferences)
 
+        # RAG: retrieve relevant historical advice
+        rag_context = ""
+        if retrieve_knowledge:
+            rag_context = await self._retrieve_knowledge_context(
+                areas, preferences, embedding_api_key, embedding_base_url, top_k=3
+            )
+
         default_system_prompt = "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含：route_plan、implementation_plan、budget_estimate、priority_areas。"
+        if rag_context:
+            default_system_prompt = (
+                default_system_prompt.rstrip() + "\n\n" + rag_context + "\n"
+                "重要：请参考上面的历史成功案例，但要因地制宜，不要照搬。"
+            )
         system_prompt = system_prompt or default_system_prompt
 
         if not llm_config or not llm_config.api_key:
