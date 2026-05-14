@@ -202,7 +202,7 @@ docker-compose up -d
 - [x] **AI 改造建议**（流式输出、多轮对话、Function Calling）
 - [x] **地图交互闭环**（双向跳转、高亮显示、路线可视化）
 - [ ] 用户认证
-- [ ] 部署文档
+- [x] 部署文档（见 `DEPLOYMENT.md`）
 
 ---
 
