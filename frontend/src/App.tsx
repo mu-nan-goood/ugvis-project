@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import { lazy, Suspense, Component, type ReactNode } from 'react'
 import { AuthProvider } from './hooks/useAuth'
 
+
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const MapView = lazy(() => import('./pages/MapView'))
 const Analysis = lazy(() => import('./pages/Analysis'))
@@ -14,9 +15,13 @@ const Auth = lazy(() => import('./pages/Auth'))
 
 function Loading() {
   return (
-    <div className='flex items-center justify-center h-64 gap-3'>
-      <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600' />
-      <span className='text-gray-400'>加载中...</span>
+    <div className='flex flex-col items-center justify-center h-64 gap-4'>
+      <div className='flex gap-1.5'>
+        <div className='w-2.5 h-2.5 bg-primary-600 rounded-full animate-bounce' style={{ animationDelay: '0ms' }} />
+        <div className='w-2.5 h-2.5 bg-primary-500 rounded-full animate-bounce' style={{ animationDelay: '150ms' }} />
+        <div className='w-2.5 h-2.5 bg-primary-400 rounded-full animate-bounce' style={{ animationDelay: '300ms' }} />
+      </div>
+      <span className='text-gray-400 text-sm'>加载中...</span>
     </div>
   )
 }
@@ -85,7 +90,6 @@ function App() {
             <Layout><DataManagement /></Layout>
           </ProtectedRoute>
         } />
-        <Route path='*' element={<NotFound />} />
         <Route path='*' element={<NotFound />} />
       </Routes>
       </Suspense>
