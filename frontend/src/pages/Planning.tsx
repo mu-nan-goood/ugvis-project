@@ -113,6 +113,7 @@ export default function Planning() {
   const [expertOpinions, setExpertOpinions] = useState<Record<string, { name: string; emoji: string; opinion: string }>>({})
   const [moderatorText, setModeratorText] = useState('')
   const [panelActive, setPanelActive] = useState(false)
+  const [expandedExperts, setExpandedExperts] = useState<Record<string, boolean>>({})
 
   // Selected point for AI context
   const [selectedPoint, setSelectedPoint] = useState<WeakArea | null>(null)
@@ -842,13 +843,29 @@ ${event.opinion}`,
                   </div>
                 )
               }
-              // Expert opinion
+              // Expert opinion (collapsible)
               if (msg.role === 'expert') {
+                const expertId = (msg as any).expert_id || idx
+                const isExpanded = expandedExperts[expertId] !== false // default expanded
                 return (
-                  <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm">
-                    <div className="prose prose-sm max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  <div key={idx} className={`bg-amber-50 border border-amber-200 rounded-lg text-sm transition-all ${isExpanded ? 'px-4 py-3' : 'px-4 py-2'}`}>
+                    <div
+                      className='flex items-center justify-between cursor-pointer select-none'
+                      onClick={() => setExpandedExperts(prev => ({ ...prev, [expertId]: !isExpanded }))}
+                    >
+                      <span className='font-medium text-amber-800 text-xs'>
+                        {msg.content.split('\n')[0].substring(0, 60)}
+                        {!isExpanded && msg.content.length > 60 ? '...' : ''}
+                      </span>
+                      <span className='text-amber-500 text-xs ml-2'>
+                        {isExpanded ? '🔼 收起' : '🔽 展开'}
+                      </span>
                     </div>
+                    {isExpanded && (
+                      <div className='prose prose-sm max-w-none mt-2'>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 )
               }
@@ -904,6 +921,28 @@ ${event.opinion}`,
           </div>
 
           <div className="p-4 border-t">
+            {/* Quick prompts */}
+            {messages.length === 0 && !chatLoading && (
+              <div className='flex flex-wrap gap-1.5 mb-3'>
+                {(chatMode === 'expert' ? [
+                  { text: '冬季绿化建议', prompt: '请从四个角度分析冬季绿化薄弱区域的改造方案' },
+                  { text: '主干路绿化评估', prompt: '分析主干路(rc2)的绿化现状并给出改进方案' },
+                  { text: '预算优化', prompt: '在有限预算下，如何优先安排绿化改造？' },
+                ] : [
+                  { text: '薄弱区域分析', prompt: '请分析当前绿化薄弱区域的分布特征' },
+                  { text: '植物选择建议', prompt: '针对GVI低于5%的区域，推荐适合的绿化植物' },
+                  { text: '季节差异', prompt: '四季GVI差异最大的区域在哪里？如何改善？' },
+                ] as Array<{ text: string; prompt: string }>).map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setInputMessage(q.prompt) }}
+                    className='px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full text-xs transition-colors'
+                  >
+                    {q.text}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 type="text"

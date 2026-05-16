@@ -6,6 +6,8 @@ from datetime import datetime
 class HealthResponse(BaseModel):
     message: str
     version: str
+    database: str = "ok"
+    sample_count: int = 0
 
 class SamplingPointResponse(BaseModel):
     id: int

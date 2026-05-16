@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, Component, type ReactNode } from 'react'
 import { AuthProvider } from './hooks/useAuth'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -13,12 +13,58 @@ const DataManagement = lazy(() => import('./pages/DataManagement'))
 const Auth = lazy(() => import('./pages/Auth'))
 
 function Loading() {
-  return <div className='flex items-center justify-center h-64'><p className='text-gray-400'>Loading...</p></div>
+  return (
+    <div className='flex items-center justify-center h-64 gap-3'>
+      <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600' />
+      <span className='text-gray-400'>加载中...</span>
+    </div>
+  )
+}
+
+function NotFound() {
+  return (
+    <div className='flex flex-col items-center justify-center h-96 text-center'>
+      <div className='text-6xl mb-4'>🗺️</div>
+      <h1 className='text-3xl font-bold text-gray-800 mb-2'>404</h1>
+      <p className='text-gray-500 mb-6'>页面未找到</p>
+      <a href='/' className='px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors'>
+        返回首页
+      </a>
+    </div>
+  )
+}
+
+interface ErrorBoundaryProps { children: ReactNode }
+interface ErrorBoundaryState { hasError: boolean; error: string }
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: '' }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className='flex flex-col items-center justify-center h-96 text-center'>
+          <div className='text-5xl mb-4'>⚠️</div>
+          <h2 className='text-xl font-bold text-gray-800 mb-2'>页面出错了</h2>
+          <p className='text-sm text-gray-500 mb-4 max-w-md'>{this.state.error}</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: '' }); window.location.reload() }}
+            className='px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors'
+          >
+            刷新页面
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 function App() {
   return (
     <AuthProvider>
+      <ErrorBoundary>
       <Suspense fallback={<Loading />}>
       <Routes>
         {/* 公开页面 */}
@@ -39,8 +85,11 @@ function App() {
             <Layout><DataManagement /></Layout>
           </ProtectedRoute>
         } />
+        <Route path='*' element={<NotFound />} />
+        <Route path='*' element={<NotFound />} />
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     </AuthProvider>
   )
 }

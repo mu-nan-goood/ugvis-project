@@ -118,11 +118,13 @@ export default function GVIMap({
       })
 
       circle.bindPopup(`
-        <div style="min-width:150px">
+        <div style="min-width:180px;font-size:13px">
           <p><strong>采样点 ${point.id}</strong></p>
-          <p>GVI: ${gvi.toFixed(2)}%</p>
+          <p>GVI: <span style="color:${color};font-weight:600">${gvi.toFixed(2)}%</span></p>
           <p>NDVI: ${point.ndvi != null ? point.ndvi.toFixed(2) : 'N/A'}</p>
-          <p>道路类型: ${point.road_type || 'N/A'}</p>
+          <p>道路: ${point.road_type || 'N/A'}</p>
+          <hr style="margin:4px 0;border-color:#eee">
+          <p style="font-size:11px;color:#666">坐标: ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}</p>
         </div>
       `)
 
@@ -162,10 +164,12 @@ export default function GVIMap({
 
       const marker = L.marker([point.lat, point.lng], { icon: pulseIcon })
       marker.bindPopup(`
-        <div style="min-width:150px">
+        <div style="min-width:180px;font-size:13px">
           <p><strong>📌 薄弱点 ${point.id}</strong></p>
-          <p>GVI: ${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</p>
-          <p>道路类型: ${point.road_type || 'N/A'}</p>
+          <p>GVI: <span style="color:#dc2626;font-weight:600">${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</span></p>
+          <p>道路: ${point.road_type || 'N/A'}</p>
+          <hr style="margin:4px 0;border-color:#eee">
+          <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.id}}}))">🤖 询问AI关于此点</p>
         </div>
       `)
 
@@ -309,5 +313,26 @@ export default function GVIMap({
     leafletMap.current.fitBounds(bounds, { padding: [20, 20] })
   }, [points, season, highlightIds, highlightRoute, initialCenter, routeWaypoints])
 
-  return <div ref={mapRef} className={`w-full h-full rounded-lg ${className}`} />
+  return (
+    <div className={`relative ${className}`}>
+      <div ref={mapRef} className='w-full h-full rounded-lg' />
+      {/* GVI Color Legend */}
+      <div className='absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-md px-3 py-2 z-[1000] text-xs'>
+        <p className='font-medium text-gray-700 mb-1'>GVI 色带</p>
+        <div className='flex items-center gap-1'>
+          <span className='text-gray-500'>0%</span>
+          <div className='flex h-3 w-24 rounded-sm overflow-hidden'>
+            <div className='flex-1 bg-red-500' />
+            <div className='flex-1 bg-yellow-500' />
+            <div className='flex-1 bg-green-500' />
+          </div>
+          <span className='text-gray-500'>30%+</span>
+        </div>
+        <div className='flex justify-between mt-0.5'>
+          <span className='text-red-500'>低</span>
+          <span className='text-green-600'>高</span>
+        </div>
+      </div>
+    </div>
+  )
 }

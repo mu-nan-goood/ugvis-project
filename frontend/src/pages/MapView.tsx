@@ -17,6 +17,18 @@ export default function MapView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // ── GVI 过滤 ──────────────────────────────────────
+  const [gviFilter, setGviFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
+  const [roadFilter, setRoadFilter] = useState<string>('all')
+
+  const GVI_FILTER_MAP: Record<string, { min_gvi?: number; max_gvi?: number }> = {
+    all: {},
+    low: { max_gvi: 15 },
+    medium: { min_gvi: 15, max_gvi: 30 },
+    high: { min_gvi: 30 },
+  }
+  const ROAD_LABELS: Record<string, string> = { rc1: '快速路', rc2: '主干路', rc3: '次干路', rc4: '支路' }
+
   // ── 路线规划模式 ─────────────────────────────────────
   const [planningMode, setPlanningMode] = useState(false)
   const [waypoints, setWaypoints] = useState<Waypoint[]>([])
@@ -50,14 +62,19 @@ export default function MapView() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchMapPoints({ season, limit: 8000 })
+      const filters: Record<string, any> = { season, limit: 8000 }
+      const gviRange = GVI_FILTER_MAP[gviFilter]
+      if (gviRange.min_gvi !== undefined) filters.min_gvi = gviRange.min_gvi
+      if (gviRange.max_gvi !== undefined) filters.max_gvi = gviRange.max_gvi
+      if (roadFilter !== 'all') filters.road_type = roadFilter
+      const data = await fetchMapPoints(filters)
       setPoints(data.points || [])
     } catch (err: any) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
-  }, [season])
+  }, [season, gviFilter, roadFilter])
 
   useEffect(() => {
     loadData()
@@ -101,7 +118,40 @@ export default function MapView() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">GVI空间分布</h2>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* GVI 过滤 */}
+          <div className='flex items-center gap-1.5'>
+            <span className='text-xs text-gray-500'>GVI:</span>
+            {(['all', 'low', 'medium', 'high'] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setGviFilter(f)}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  gviFilter === f
+                    ? f === 'low' ? 'bg-red-100 text-red-700' : f === 'medium' ? 'bg-yellow-100 text-yellow-700' : f === 'high' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                {{ all: '全部', low: '<15%', medium: '15-30%', high: '>30%' }[f]}
+              </button>
+            ))}
+          </div>
+
+          {/* 道路类型过滤 */}
+          <div className='flex items-center gap-1.5'>
+            <span className='text-xs text-gray-500'>道路:</span>
+            <select
+              value={roadFilter}
+              onChange={(e) => setRoadFilter(e.target.value)}
+              className='border rounded px-2 py-1 text-xs'
+            >
+              <option value='all'>全部</option>
+              {Object.entries(ROAD_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </div>
+
           {/* 模式切换 */}
           <button
             onClick={() => {

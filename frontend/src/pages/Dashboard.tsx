@@ -1,20 +1,36 @@
 import { useEffect, useState } from 'react'
-import { TreePine, MapPin, TrendingUp, Activity } from 'lucide-react'
+import { TreePine, MapPin, TrendingUp, Activity, AlertTriangle, ThumbsUp } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import GVIChart from '../components/GVIChart'
 import type { EChartsOption } from '../components/GVIChart'
 import type { StatsResponse } from '../types'
-import { fetchStats } from '../utils/api'
+import { fetchStats, fetchPlanningWeakAreas, fetchFeedbackStats } from '../utils/api'
+
+interface PlanningStats {
+  high_priority: number
+  medium_priority: number
+  low_priority: number
+  estimated_trees: number
+  estimated_gvi_improvement: number
+}
 
 export default function Dashboard() {
   const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [planningStats, setPlanningStats] = useState<PlanningStats | null>(null)
+  const [feedbackUpRate, setFeedbackUpRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchStats()
-      .then((data) => {
+    Promise.all([
+      fetchStats().catch((err) => { throw err }),
+      fetchPlanningWeakAreas().then(d => d.stats).catch(() => null),
+      fetchFeedbackStats().then(d => d.total > 0 ? d.up_rate : null).catch(() => null),
+    ])
+      .then(([data, planStats, upRate]) => {
         setStats(data)
+        setPlanningStats(planStats)
+        setFeedbackUpRate(upRate)
         setLoading(false)
       })
       .catch((err) => {
@@ -132,6 +148,42 @@ export default function Dashboard() {
           icon={<TrendingUp className="w-6 h-6" />}
         />
       </div>
+
+      {/* Planning & Feedback Overview */}
+      {planningStats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="card border-l-4 border-red-400 flex items-center gap-3">
+            <AlertTriangle className="w-8 h-8 text-red-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-gray-500">高优先级区域</p>
+              <p className="text-2xl font-bold text-red-600">{planningStats.high_priority.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="card border-l-4 border-yellow-400 flex items-center gap-3">
+            <AlertTriangle className="w-8 h-8 text-yellow-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-gray-500">中优先级区域</p>
+              <p className="text-2xl font-bold text-yellow-600">{planningStats.medium_priority.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="card border-l-4 border-blue-400 flex items-center gap-3">
+            <TreePine className="w-8 h-8 text-blue-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-gray-500">预估补植树苗</p>
+              <p className="text-2xl font-bold text-blue-600">{planningStats.estimated_trees.toLocaleString()}</p>
+            </div>
+          </div>
+          <div className="card border-l-4 border-green-400 flex items-center gap-3">
+            <ThumbsUp className="w-8 h-8 text-green-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-gray-500">AI建议好评率</p>
+              <p className="text-2xl font-bold text-green-600">
+                {feedbackUpRate !== null ? `${Math.round(feedbackUpRate * 100)}%` : '—'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

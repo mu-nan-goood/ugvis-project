@@ -155,6 +155,9 @@ export async function fetchPoints(params?: {
 export async function fetchMapPoints(params?: {
   season?: string
   limit?: number
+  min_gvi?: number
+  max_gvi?: number
+  road_type?: string
 }) {
   const { data } = await api.get('/map/points', { params })
   return data
