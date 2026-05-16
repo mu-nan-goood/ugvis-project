@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     custom_llm_base_url: Optional[str] = None
 
     # Embedding Configuration (for RAG knowledge base)
-    embedding_api_base: Optional[str] = None  # e.g. https://api.deepseek.com/v1
+    embedding_api_base: Optional[str] = None  # e.g. http://localhost:11434/v1 (Ollama) or http://localhost:1234/v1 (LM Studio)
+    embedding_model: str = "nomic-embed-text"  # Model name; use "text-embedding-nomic-embed-text-v2-moe" for LM Studio
     
     # OpenClaw Configuration
     openclaw_url: str = "http://localhost:28789"

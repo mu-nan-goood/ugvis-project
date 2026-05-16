@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { TreePine, MapPin, TrendingUp, Activity } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import GVIChart from '../components/GVIChart'
-import type { EChartsOption } from 'echarts'
+import type { EChartsOption } from '../components/GVIChart'
 import type { StatsResponse } from '../types'
 import { fetchStats } from '../utils/api'
 

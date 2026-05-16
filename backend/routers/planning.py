@@ -327,7 +327,7 @@ async def chat_stream(
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
-    """Multi-turn chat with AI (SSE streaming)."""
+    """Multi-turn chat with AI (SSE streaming + Function Calling)."""
     async def event_generator():
         try:
             # Resolve LLM config
@@ -341,16 +341,35 @@ async def chat_stream(
 
             history = [{"role": m.role, "content": m.content} for m in request.history]
 
+            # Get tool schemas for Function Calling
+            tools = get_tool_schemas()
+
             yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
 
-            async for chunk in llm_client.chat_stream(
+            # Use Function Calling enabled stream
+            async for event_str in llm_client.chat_stream_with_function_call(
                 message=request.message,
                 history=history,
                 areas=areas,
                 preferences=request.preferences,
                 llm_config=llm_config,
+                tools=tools,
+                db=db,
             ):
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+                # chat_stream_with_function_call yields JSON strings with "\n\n" suffix
+                # We need to re-wrap them into SSE format
+                event_str = event_str.strip()
+                if not event_str:
+                    continue
+                try:
+                    event_data = json.loads(event_str)
+                    yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    # Already formatted, pass through
+                    if not event_str.startswith("data: "):
+                        yield f"data: {event_str}\n\n"
+                    else:
+                        yield event_str + "\n\n"
 
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
@@ -373,3 +392,61 @@ async def chat_stream(
 def get_tools(current_user: UserResponse = Depends(get_current_user)):
     """Get available tool schemas for Function Calling."""
     return {"tools": get_tool_schemas()}
+
+
+# ─── Expert Panel ──────────────────────────────────────────────────────────
+
+@router.post("/expert-panel")
+async def expert_panel(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """Expert Panel: multiple experts answer in parallel, moderator synthesizes."""
+    from services.expert_panel import expert_panel_stream, EXPERTS
+
+    async def event_generator():
+        try:
+            llm_config = _resolve_llm_config(request.llm_config)
+            if not llm_config:
+                yield f"data: {json.dumps({'type': 'error', 'content': '未配置 LLM API Key'}, ensure_ascii=False)}\n\n"
+                return
+
+            areas = _get_weak_areas_from_db(db, limit=50)
+            history = [{"role": m.role, "content": m.content} for m in request.history]
+
+            async for event_str in expert_panel_stream(
+                message=request.message,
+                history=history,
+                areas=areas,
+                preferences=request.preferences,
+                llm_config=llm_config,
+                expert_ids=getattr(request, 'expert_ids', None),
+            ):
+                yield event_str
+
+        except Exception as e:
+            logger.error(f"Expert panel error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/expert-panel/experts")
+def list_experts():
+    """List available expert profiles."""
+    from services.expert_panel import EXPERTS
+    return {
+        "experts": [
+            {"id": e.id, "name": e.name, "emoji": e.emoji}
+            for e in EXPERTS
+        ]
+    }

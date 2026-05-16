@@ -1,12 +1,12 @@
 import axios from 'axios'
-import type { User, LoginRequest, RegisterRequest, AuthResponse } from '../types'
+import type { User, LoginRequest, RegisterRequest, AuthResponse, RouteCoord, RouteAnalysis, RouteComparison } from '../types'
 
 const API_BASE = '/api'
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 60000,
-  withCredentials: true, // 允许携带 cookie
+  withCredentials: true,
 })
 
 // ── Token 管理 ─────────────────────────────────────────
@@ -23,6 +23,16 @@ export function setAccessToken(token: string): void {
 
 export function clearAccessToken(): void {
   sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+}
+
+/** 为原生 fetch 请求构建带 Authorization 的 headers */
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getAccessToken()
+  const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra }
+  if (token) {
+    h['Authorization'] = `Bearer ${token}`
+  }
+  return h
 }
 
 // ── 请求拦截器：自动注入 Bearer Token ───────────────────
@@ -50,10 +60,8 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    // 如果是 401 且未尝试过刷新，则尝试刷新
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
-        // 已经在刷新中，将请求加入队列
         return new Promise((resolve) => {
           refreshQueue.push((token: string) => {
             originalRequest.headers.Authorization = `Bearer ${token}`
@@ -75,13 +83,11 @@ api.interceptors.response.use(
         processRefreshQueue(data.access_token)
         isRefreshing = false
 
-        // 重试原请求
         originalRequest.headers.Authorization = `Bearer ${data.access_token}`
         return api(originalRequest)
       } catch (refreshError) {
         isRefreshing = false
         clearAccessToken()
-        // 刷新失败，重定向到登录页
         window.location.href = '/auth?reason=session_expired'
         return Promise.reject(refreshError)
       }
@@ -187,13 +193,14 @@ export async function fetchPlanningWeakAreas() {
 export interface LLMConfig {
   provider: string
   model?: string
-  api_key?: string   // 仅 custom provider 需要
-  api_base?: string  // 仅 custom provider 需要
+  api_key?: string
+  api_base?: string
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'expert' | 'moderator_start'
   content: string
+  expert_id?: string
 }
 
 export interface ChatRequest {
@@ -224,12 +231,12 @@ export async function generateAdvice(request: RenovationAdviceRequest) {
 export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGenerator<any, void, unknown> {
   const response = await fetch('/api/planning/stream', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(request),
   })
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+    throw new Error(`HTTP ${response.status}`)
   }
 
   const reader = response.body?.getReader()
@@ -273,12 +280,12 @@ export async function chat(request: ChatRequest) {
 export async function* streamChat(request: ChatRequest): AsyncGenerator<any, void, unknown> {
   const response = await fetch('/api/planning/chat-stream', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(request),
   })
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+    throw new Error(`HTTP ${response.status}`)
   }
 
   const reader = response.body?.getReader()
@@ -402,8 +409,6 @@ export async function deleteFeedback(id: number): Promise<void> {
 
 // ── 绿波路线规划 ─────────────────────────────────────
 
-import type { RouteCoord, RouteAnalysis, RouteComparison } from '../types'
-
 /** 分析路线 GVI */
 export async function analyzeRoute(coords: RouteCoord[]): Promise<RouteAnalysis> {
   const { data } = await api.post<RouteAnalysis>('/routing/analyze', { coords })
@@ -414,6 +419,66 @@ export async function analyzeRoute(coords: RouteCoord[]): Promise<RouteAnalysis>
 export async function compareRoutes(coords: RouteCoord[]): Promise<RouteComparison> {
   const { data } = await api.post<RouteComparison>('/routing/compare', { coords })
   return data
+}
+
+// ── Expert Panel ────────────────────────────────────────────
+
+export interface ExpertInfo {
+  id: string
+  name: string
+  emoji: string
+}
+
+export interface ExpertOpinion {
+  expert_id: string
+  expert_name: string
+  emoji: string
+  opinion: string
+}
+
+export async function fetchExpertPanelExperts(): Promise<ExpertInfo[]> {
+  const { data } = await api.get('/planning/expert-panel/experts')
+  return data.experts
+}
+
+export async function* streamExpertPanel(
+  request: ChatRequest
+): AsyncGenerator<any, void, unknown> {
+  const response = await fetch('/api/planning/expert-panel', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No response body')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      const match = line.match(/^data: (.+)$/m)
+      if (match) {
+        try {
+          yield JSON.parse(match[1])
+        } catch {
+          // ignore parse error
+        }
+      }
+    }
+  }
 }
 
 export default api

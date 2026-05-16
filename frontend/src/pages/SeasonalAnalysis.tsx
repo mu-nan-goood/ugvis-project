@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import GVIChart from '../components/GVIChart'
-import type { EChartsOption } from 'echarts'
+import type { EChartsOption } from '../components/GVIChart'
 import { fetchSeasonalAnalysis } from '../utils/api'
 import { SEASON_LABELS, type Season } from '../types'
 

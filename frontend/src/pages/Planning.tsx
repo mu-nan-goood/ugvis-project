@@ -8,6 +8,7 @@ import {
   streamChat,
   submitFeedback,
   fetchFeedbackStats,
+  streamExpertPanel,
   type ChatMessage,
   type LLMConfig,
   type FeedbackStats,
@@ -46,6 +47,14 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string; bg: string
   high: { label: '高', color: 'text-red-700', bg: 'bg-red-50' },
   medium: { label: '中', color: 'text-yellow-700', bg: 'bg-yellow-50' },
   low: { label: '低', color: 'text-green-700', bg: 'bg-green-50' },
+}
+
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  get_weak_areas: '查询薄弱区域',
+  get_statistics: '获取统计数据',
+  get_seasonal_gvi: '查询季节GVI',
+  get_point_detail: '查看采样点详情',
+  get_prompt_templates: '获取提示模板',
 }
 
 const PROVIDER_OPTIONS = [
@@ -97,6 +106,13 @@ export default function Planning() {
   const [feedbackComment, setFeedbackComment] = useState('')
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null)
+
+  // Expert Panel state
+  const [chatMode, setChatMode] = useState<'chat' | 'expert'>('chat')
+  // @ts-ignore - used for future expert opinion display
+  const [expertOpinions, setExpertOpinions] = useState<Record<string, { name: string; emoji: string; opinion: string }>>({})
+  const [moderatorText, setModeratorText] = useState('')
+  const [panelActive, setPanelActive] = useState(false)
 
   // Selected point for AI context
   const [selectedPoint, setSelectedPoint] = useState<WeakArea | null>(null)
@@ -255,8 +271,81 @@ export default function Planning() {
     setInputMessage('')
     setChatLoading(true)
     setStreamingText('')
+    setExpertOpinions({})
+    setModeratorText('')
+    setPanelActive(true)
 
+    // ── Expert Panel Mode ──────────────────────────────
+    if (chatMode === 'expert') {
+      let modText = ''
+      try {
+        const history = messages.filter((m) => m.role !== 'system')
+        for await (const event of streamExpertPanel({
+          message: userMsg.content,
+          history,
+          llm_config: llmConfig,
+        })) {
+          if (event.type === 'panel_start') {
+            setMessages((prev) => [...prev, {
+              role: 'system',
+              content: `🎯 专家小组启动，参与专家：${event.experts?.map((e: any) => e.emoji + e.name).join('、') || ''}`
+            }])
+          } else if (event.type === 'expert_done') {
+            const expertId = event.expert_id
+            const expertName = event.expert_name
+            const emoji = event.emoji || ''
+            setExpertOpinions((prev) => ({
+              ...prev,
+              [expertId]: { name: expertName, emoji, opinion: event.opinion },
+            }))
+            setMessages((prev) => [...prev, {
+              role: 'expert',
+              content: `${emoji} **${expertName}**
+${event.opinion}`,
+              expert_id: expertId,
+            }])
+          } else if (event.type === 'moderator_start') {
+            setMessages((prev) => [...prev, {
+              role: 'moderator_start',
+              content: '📋 主持人整合专家意见中...',
+            }])
+          } else if (event.type === 'moderator_chunk') {
+            modText += event.content
+            setModeratorText(modText)
+          } else if (event.type === 'moderator_done') {
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              content: '🎯 **主持人综合建议**\n\n' + (event.content || modText),
+            }])
+            setModeratorText('')
+          } else if (event.type === 'panel_done') {
+            setMessages((prev) => [...prev, {
+              role: 'system',
+              content: '✅ 专家小组讨论完成',
+            }])
+          } else if (event.type === 'error') {
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              content: '专家小组错误：' + event.content,
+            }])
+            break
+          }
+        }
+      } catch (err: any) {
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
+          content: '专家小组请求失败：' + err.message,
+        }])
+      } finally {
+        setChatLoading(false)
+        setPanelActive(false)
+      }
+      return
+    }
+
+    // ── Normal Chat Mode (existing logic) ─────────────
     let fullText = ''
+    let toolCalls: Array<{ name: string; arguments: Record<string, any>; result?: any }> = []
     try {
       const history = messages.filter((m) => m.role !== 'system')
       for await (const event of streamChat({
@@ -267,11 +356,21 @@ export default function Planning() {
         if (event.type === 'chunk') {
           fullText += event.content
           setStreamingText(fullText)
+        } else if (event.type === 'tool_call_start') {
+          const toolName = TOOL_DISPLAY_NAMES[event.name] || event.name
+          toolCalls.push({ name: event.name, arguments: event.arguments || {} })
+          setStreamingText((prev) => prev + `\n> 🔧 调用工具: **${toolName}**...\n`)
+        } else if (event.type === 'tool_result') {
+          const toolName = TOOL_DISPLAY_NAMES[event.name] || event.name
+          const lastCall = toolCalls[toolCalls.length - 1]
+          if (lastCall) lastCall.result = event.data
+          if (event.success) {
+            setStreamingText((prev) => prev + `> ✅ ${toolName} 执行完成\n`)
+          } else {
+            setStreamingText((prev) => prev + `> ❌ ${toolName} 执行失败: ${event.error || '未知错误'}\n`)
+          }
         } else if (event.type === 'error') {
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: '错误: ' + event.content },
-          ])
+          setMessages((prev) => [...prev, { role: 'assistant', content: '错误: ' + event.content }])
           setStreamingText('')
           break
         }
@@ -282,10 +381,7 @@ export default function Planning() {
         setMessages((prev) => [...prev, { role: 'assistant', content: '（无响应）' }])
       }
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: '请求失败: ' + err.message },
-      ])
+      setMessages((prev) => [...prev, { role: 'assistant', content: '请求失败: ' + err.message }])
     } finally {
       setStreamingText('')
       setChatLoading(false)
@@ -653,14 +749,39 @@ export default function Planning() {
       {chatOpen && (
         <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 flex flex-col">
           <div className="flex items-center justify-between p-4 border-b">
-            <h3 className="font-semibold">
-              🤖 AI 规划助手
-              {selectedPoint && (
-                <span className="ml-2 text-xs font-normal text-gray-500">
-                  （分析点 {selectedPoint.point_id}）
-                </span>
-              )}
-            </h3>
+            <div className="flex items-center gap-3">
+              <h3 className="font-semibold">
+                🤖 AI 规划助手
+                {selectedPoint && (
+                  <span className="ml-2 text-xs font-normal text-gray-500">
+                    （分析点 {selectedPoint.point_id}）
+                  </span>
+                )}
+              </h3>
+              {/* Mode Toggle */}
+              <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs">
+                <button
+                  onClick={() => setChatMode('chat')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    chatMode === 'chat'
+                      ? 'bg-white shadow text-primary-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  💬 对话
+                </button>
+                <button
+                  onClick={() => setChatMode('expert')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    chatMode === 'expert'
+                      ? 'bg-white shadow text-primary-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  🎯 专家小组
+                </button>
+              </div>
+            </div>
             <button
               onClick={() => {
                 setChatOpen(false)
@@ -676,14 +797,30 @@ export default function Planning() {
             {messages.length === 0 && (
               <div className="text-center text-gray-500 py-8">
                 <p className="text-lg mb-2">👋 你好！</p>
-                <p className="text-sm">我是你的城市绿化规划 AI 助手。</p>
-                <p className="text-sm mt-1">可以问我关于：</p>
-                <ul className="text-sm mt-1 space-y-1">
-                  <li>• 薄弱区域分析</li>
-                  <li>• 绿化改造建议</li>
-                  <li>• 植物选择推荐</li>
-                  <li>• 预算估算</li>
-                </ul>
+                {chatMode === 'expert' ? (
+                  <>
+                    <p className="text-sm">🎯 专家小组模式</p>
+                    <p className="text-sm mt-1">4位专家将并行分析你的问题：</p>
+                    <ul className="text-sm mt-1 space-y-1">
+                      <li>🏙️ 城市规划师 — 空间与布局视角</li>
+                      <li>🌿 生态学家 — 生物与可持续视角</li>
+                      <li>📊 数据分析师 — 量化与实证视角</li>
+                      <li>💰 经济评估师 — 成本与收益视角</li>
+                    </ul>
+                    <p className="text-xs mt-2 text-gray-400">最后由主持人综合出最终方案</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm">我是你的城市绿化规划 AI 助手。</p>
+                    <p className="text-sm mt-1">可以问我关于：</p>
+                    <ul className="text-sm mt-1 space-y-1">
+                      <li>• 薄弱区域分析</li>
+                      <li>• 绿化改造建议</li>
+                      <li>• 植物选择推荐</li>
+                      <li>• 预算估算</li>
+                    </ul>
+                  </>
+                )}
                 {selectedPoint && (
                   <div className="mt-4 p-3 bg-blue-50 rounded-lg text-left text-xs">
                     <p className="font-semibold text-blue-700">已选薄弱点 {selectedPoint.point_id}</p>
@@ -696,32 +833,71 @@ export default function Planning() {
                 )}
               </div>
             )}
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            {messages.map((msg, idx) => {
+              // System messages (expert panel status)
+              if (msg.role === 'system') {
+                return (
+                  <div key={idx} className="text-center text-xs text-gray-400 py-1">
+                    {msg.content}
+                  </div>
+                )
+              }
+              // Expert opinion
+              if (msg.role === 'expert') {
+                return (
+                  <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm">
+                    <div className="prose prose-sm max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    </div>
+                  </div>
+                )
+              }
+              // Moderator start indicator
+              if (msg.role === 'moderator_start') {
+                return (
+                  <div key={idx} className="text-center py-1">
+                    <span className="text-xs text-primary-600 font-medium animate-pulse">{msg.content}</span>
+                  </div>
+                )
+              }
+              // User / Assistant messages
+              return (
                 <div
-                  className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-                    msg.role === 'user'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}
+                  key={idx}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className="prose prose-sm max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-            </div>
+                  <div
+                    className={`max-w-[85%] rounded-lg px-4 py-2 text-sm ${
+                      msg.role === 'user'
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    <div className="prose prose-sm max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {streamingText && (
               <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-lg px-4 py-2 text-sm bg-gray-100 text-gray-800">
+                <div className="max-w-[85%] rounded-lg px-4 py-2 text-sm bg-gray-100 text-gray-800">
                   <div className="prose prose-sm max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
             </div>
                   <span className="inline-block w-2 h-4 bg-primary-600 animate-pulse ml-1" />
                 </div>
+              </div>
+            )}
+            {/* Moderator streaming text during expert panel */}
+            {moderatorText && panelActive && (
+              <div className="bg-primary-50 border border-primary-200 rounded-lg px-4 py-3 text-sm">
+                <div className="text-xs font-semibold text-primary-700 mb-1">🎯 主持人整合中</div>
+                <div className="prose prose-sm max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{moderatorText}</ReactMarkdown>
+                </div>
+                <span className="inline-block w-2 h-4 bg-primary-600 animate-pulse" />
               </div>
             )}
             <div ref={chatEndRef} />
@@ -735,9 +911,11 @@ export default function Planning() {
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
                 placeholder={
-                  selectedPoint
-                    ? 'AI 已加载选中点上下文，直接发送即可...'
-                    : '输入消息，或先选择薄弱点询问...'
+                  chatMode === 'expert'
+                    ? '输入问题，4位专家将并行分析...'
+                    : selectedPoint
+                      ? 'AI 已加载选中点上下文，直接发送即可...'
+                      : '输入消息，或先选择薄弱点询问...'
                 }
                 disabled={chatLoading}
                 className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"

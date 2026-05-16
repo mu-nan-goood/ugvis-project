@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import SamplingPoint, ModelResult
 from schemas import AnalysisResponse, ModelMetrics, LocalR2Point
+from services.cache import cache
 
 router = APIRouter(prefix="/api/analysis", tags=["Spatial Analysis"])
 
@@ -18,6 +19,11 @@ _SEASONS_COL = {
 @router.get("/models", response_model=AnalysisResponse)
 def get_analysis(db: Session = Depends(get_db)):
     """空间分析：模型对比（LR 实时计算，GWR/MGWR 从 model_results 或文献估计）"""
+    # Try cache first (TTL: 5 min)
+    cached = cache.get("analysis:models")
+    if cached is not None:
+        return cached
+
     import math
     import statistics
 
@@ -131,8 +137,10 @@ def get_analysis(db: Session = Depends(get_db)):
                     LocalR2Point(lat=lat, lng=lng, local_r2=round(local_r2_est, 3))
                 )
 
-    return AnalysisResponse(
+    result = AnalysisResponse(
         models=models,
         local_r2_points=local_r2_points,
         total_points_used=db.query(SamplingPoint).count(),
     )
+    cache.set("analysis:models", result.model_dump(), ttl=300)  # 5 min
+    return result

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -18,8 +16,6 @@ services:
       - ./data:/app/data
     networks:
       - ugvis-network
-    depends_on:
-      - openclaw
     restart: unless-stopped
 
   frontend:
@@ -37,23 +33,6 @@ services:
       - backend
     restart: unless-stopped
 
-  openclaw:
-    image: openclaw/openclaw:latest
-    container_name: ugvis-openclaw
-    ports:
-      - "28789:28789"
-    environment:
-      - OPENCLAW_BIND=0.0.0.0:28789
-      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
-    volumes:
-      - openclaw-data:/app/data
-    networks:
-      - ugvis-network
-    restart: unless-stopped
-
 networks:
   ugvis-network:
     driver: bridge
-
-volumes:
-  openclaw-data:

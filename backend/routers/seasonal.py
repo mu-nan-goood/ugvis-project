@@ -5,6 +5,7 @@ from database import get_db
 from models import SamplingPoint
 from schemas import SeasonalAnalysisResponse, BoxplotData, SeasonalSummary, CVPoint, StabilityStats
 from utils import compute_boxplot
+from services.cache import cache
 
 router = APIRouter(prefix="/api/seasonal", tags=["Seasonal Analysis"])
 
@@ -19,6 +20,11 @@ _SEASONS_MAP = {
 @router.get("/analysis", response_model=SeasonalAnalysisResponse)
 def get_seasonal_analysis(db: Session = Depends(get_db)):
     """季节变异分析：箱线图、统计摘要、变异系数、稳定性分区"""
+    # Try cache first (TTL: 10 min — seasonal data rarely changes)
+    cached = cache.get("seasonal:analysis")
+    if cached is not None:
+        return cached
+
     import statistics
 
     boxplot_data = []
@@ -103,9 +109,11 @@ def get_seasonal_analysis(db: Session = Depends(get_db)):
         unstable_pct=round(unstable / total_pts * 100, 1) if total_pts > 0 else 0,
     )
 
-    return SeasonalAnalysisResponse(
+    result = SeasonalAnalysisResponse(
         boxplot=boxplot_data,
         summary=summary_data,
         cv_points=cv_points,
         stability=stability,
     )
+    cache.set("seasonal:analysis", result.model_dump(), ttl=600)  # 10 min
+    return result

@@ -5,12 +5,18 @@ from sqlalchemy import func
 from database import get_db
 from models import SamplingPoint, RoadSegment
 from schemas import StatsResponse, SeasonalStats, RoadSegmentList
+from services.cache import cache
 
 router = APIRouter(prefix="/api", tags=["Statistics"])
 
 
 @router.get("/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
+    # Try cache first (TTL: 5 min)
+    cached = cache.get("stats:overview")
+    if cached is not None:
+        return cached
+
     total_points = db.query(SamplingPoint).count()
     total_roads = db.query(RoadSegment).count()
 
@@ -46,12 +52,14 @@ def get_stats(db: Session = Depends(get_db)):
             sample_count=result.count,
         ))
 
-    return {
+    result = {
         "total_points": total_points,
         "total_roads": total_roads,
         "road_types": {rt: count for rt, count in road_types},
         "seasonal": seasonal_stats,
     }
+    cache.set("stats:overview", result, ttl=300)
+    return result
 
 
 @router.get("/roads", response_model=RoadSegmentList)

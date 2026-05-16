@@ -18,7 +18,15 @@ CHROMA_DB_PATH = Path(__file__).parent.parent / "data" / "chroma_db"
 CHROMA_DB_PATH.mkdir(parents=True, exist_ok=True)
 
 COLLECTION_ADVICE = "advice_history"
-EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v2-moe"
+
+
+def _get_embedding_model() -> str:
+    """从配置读取 embedding 模型名。"""
+    try:
+        from config import settings
+        return settings.embedding_model or "nomic-embed-text"
+    except Exception:
+        return "nomic-embed-text"
 
 
 # ─── ChromaDB Client (懒初始化) ──────────────────────────────────────────────
@@ -124,7 +132,7 @@ async def index_advice(
             embedding = await get_embedding(
                 advice_context,
                 embedding_api_key,
-                EMBEDDING_MODEL,
+                _get_embedding_model(),
                 embedding_base_url,
             )
         except Exception as e:
@@ -200,7 +208,7 @@ async def retrieve_relevant_advice(
             query_embedding = await get_embedding(
                 query,
                 embedding_api_key,
-                EMBEDDING_MODEL,
+                _get_embedding_model(),
                 embedding_base_url,
             )
         except Exception as e:
@@ -259,7 +267,7 @@ def get_knowledge_base_stats() -> Dict[str, Any]:
             "status": "ready",
             "total_records": count,
             "collection": COLLECTION_ADVICE,
-            "embedding_model": EMBEDDING_MODEL,
+            "embedding_model": _get_embedding_model(),
         }
     except Exception as e:
         logger.warning(f"Failed to get KB stats: {e}")

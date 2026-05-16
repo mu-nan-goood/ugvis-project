@@ -1,5 +1,11 @@
 """
-services/embedding.py - OpenAI Embedding API + Local TF-IDF Fallback
+services/embedding.py - OpenAI-compatible Embedding API + Local TF-IDF Fallback
+
+支持任意 OpenAI 兼容的 Embedding 服务：
+- LM Studio: http://localhost:1234/v1 (模型: text-embedding-nomic-embed-text-v2-moe)
+- Ollama:    http://localhost:11434/v1 (模型: nomic-embed-text)
+
+切换只需修改 .env 中的 EMBEDDING_API_BASE 和 EMBEDDING_MODEL。
 """
 import logging
 from typing import List, Optional
@@ -9,8 +15,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v2-moe"
-EMBEDDING_URL = "http://localhost:1234/v1/embeddings"
+# Default values — overridden by config.py settings from .env
+DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+DEFAULT_EMBEDDING_URL = "http://localhost:11434/v1/embeddings"
 
 
 def is_embedding_available(api_key: Optional[str]) -> bool:
@@ -21,29 +28,32 @@ def is_embedding_available(api_key: Optional[str]) -> bool:
 async def get_embedding(
     text: str,
     api_key: str,
-    model: str = EMBEDDING_MODEL,
+    model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Optional[List[float]]:
     """
-    调用 OpenAI Embedding API 获取单个文本的向量。
+    调用 OpenAI 兼容 Embedding API 获取单个文本的向量。
     失败时返回 None（触发 fallback）。
     """
+    from config import settings
+
     if not text or not api_key:
         return None
 
-    url = (base_url or EMBEDDING_URL).rstrip("/") + "/embeddings"
+    _model = model or settings.embedding_model or DEFAULT_EMBEDDING_MODEL
+    _url = (base_url or settings.embedding_api_base or "http://localhost:11434/v1").rstrip("/") + "/embeddings"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": model,
+        "model": _model,
         "input": text[:8000],  # 截断超长文本
     }
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
+            response = await client.post(_url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
             embedding = data["data"][0]["embedding"]
@@ -57,29 +67,32 @@ async def get_embedding(
 async def get_embeddings(
     texts: List[str],
     api_key: str,
-    model: str = EMBEDDING_MODEL,
+    model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> Optional[List[List[float]]]:
     """
-    批量调用 OpenAI Embedding API。
+    批量调用 OpenAI 兼容 Embedding API。
     失败时返回 None。
     """
+    from config import settings
+
     if not texts or not api_key:
         return None
 
-    url = (base_url or EMBEDDING_URL).rstrip("/") + "/embeddings"
+    _model = model or settings.embedding_model or DEFAULT_EMBEDDING_MODEL
+    _url = (base_url or settings.embedding_api_base or "http://localhost:11434/v1").rstrip("/") + "/embeddings"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": model,
+        "model": _model,
         "input": [text[:8000] for text in texts],
     }
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
+            response = await client.post(_url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
             embeddings = [item["embedding"] for item in data["data"]]

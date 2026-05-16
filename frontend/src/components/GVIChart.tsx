@@ -1,8 +1,51 @@
 import { useEffect, useRef } from 'react'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { BarChart, ScatterChart, BoxplotChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  VisualMapComponent,
+  LegendComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import type { ComposeOption } from 'echarts/core'
+import type { BarSeriesOption, ScatterSeriesOption, BoxplotSeriesOption } from 'echarts/charts'
+import type {
+  TitleComponentOption,
+  TooltipComponentOption,
+  GridComponentOption,
+  VisualMapComponentOption,
+  LegendComponentOption,
+} from 'echarts/components'
+
+// Combined option type for our usage — export for pages to use
+export type EChartsOption = ComposeOption<
+  | BarSeriesOption
+  | ScatterSeriesOption
+  | BoxplotSeriesOption
+  | TitleComponentOption
+  | TooltipComponentOption
+  | GridComponentOption
+  | VisualMapComponentOption
+  | LegendComponentOption
+>
+
+// Register only the components we actually use
+echarts.use([
+  BarChart,
+  ScatterChart,
+  BoxplotChart,
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  VisualMapComponent,
+  LegendComponent,
+  CanvasRenderer,
+])
 
 interface GVIChartProps {
-  option: echarts.EChartsOption
+  option: EChartsOption
   className?: string
 }
 
