@@ -88,3 +88,8 @@ app.include_router(planning.router)
 app.include_router(feedback.router)
 app.include_router(routing.router)
 app.include_router(auth.router)  # 认证路由
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

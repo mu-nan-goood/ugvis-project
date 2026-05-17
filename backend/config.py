@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # OpenClaw Configuration
     openclaw_url: str = "http://localhost:28789"
     openclaw_token: Optional[str] = None
+    openclaw_timeout: int = 60  # seconds
     
     # JWT Configuration
     jwt_secret_key: str = "your-secret-key-change-in-production"  # 必须从 .env 读取，禁止硬编码

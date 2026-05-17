@@ -123,6 +123,13 @@ def get_me(current_user: UserResponse = Depends(get_current_user)):
     return current_user
 
 
+@router.post("/logout")
+def logout(current_user: UserResponse = Depends(get_current_user)):
+    """用户登出（客户端清除 Token 即可，服务端无需吊销）"""
+    logger.info(f"用户登出: {current_user.username}")
+    return {"message": "已登出"}
+
+
 @router.post("/password/change", response_model=UserResponse)
 def change_password(
     password_data: PasswordChangeRequest,
