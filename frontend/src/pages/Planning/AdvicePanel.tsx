@@ -38,8 +38,8 @@ export default function AdvicePanel({ adviceText, adviceLoading, areaIds, onGene
       })
       setFeedbackVote(vote)
       fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
-    } catch (err) {
-      console.error('Feedback submit failed:', err)
+    } catch {
+      // Feedback submission failed silently — UI stays in current state for retry
     } finally {
       setFeedbackSubmitting(false)
     }
@@ -57,8 +57,8 @@ export default function AdvicePanel({ adviceText, adviceLoading, areaIds, onGene
           area_ids: areaIds,
         })
         fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
-      } catch (err) {
-        console.error('Feedback submit failed:', err)
+      } catch {
+        // Submission failed silently — user can retry
       }
       setFeedbackComment('')
       return
@@ -73,8 +73,8 @@ export default function AdvicePanel({ adviceText, adviceLoading, areaIds, onGene
       })
       setFeedbackComment('')
       fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
-    } catch (err) {
-      console.error('Feedback submit failed:', err)
+    } catch {
+      // Submission failed silently — user can retry
     } finally {
       setFeedbackSubmitting(false)
     }

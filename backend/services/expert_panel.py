@@ -100,6 +100,9 @@ MODERATOR_PROMPT = (
     "语言简洁有力，避免重复专家已说的细节，聚焦整合与决策。"
 )
 
+# 每位专家意见传给 Moderator 时的最大字符数（防止请求体过大触发 400）
+MAX_EXPERT_OPINION_CHARS = 1500
+
 
 def _build_expert_system_prompt(
     expert: ExpertProfile,
@@ -118,6 +121,9 @@ def _build_moderator_messages(
     for expert in EXPERTS:
         opinion = expert_opinions.get(expert.id, "")
         if opinion:
+            # 截断过长的专家意见，防止 Moderator 请求体过大导致 400
+            if len(opinion) > MAX_EXPERT_OPINION_CHARS:
+                opinion = opinion[:MAX_EXPERT_OPINION_CHARS] + "\n...（已截断）"
             opinions_text += f"\n### {expert.emoji} {expert.name}\n{opinion}\n"
 
     return [

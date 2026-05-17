@@ -203,10 +203,17 @@ class LLMClient:
             ]
         payload = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000}
 
-        response = await self.client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        try:
+            response = await self.client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            # 连接池污染恢复：400/502 等错误后重建客户端
+            if e.response.status_code in (400, 502, 503):
+                logger.warning(f"HTTP {e.response.status_code} detected, resetting httpx client")
+                await self.close()
+            raise
 
     async def _call_claude(
         self,
@@ -234,10 +241,16 @@ class LLMClient:
             "system": system_prompt,
             "messages": claude_messages,
         }
-        response = await self.client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data["content"][0]["text"]
+        try:
+            response = await self.client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["content"][0]["text"]
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 502, 503):
+                logger.warning(f"HTTP {e.response.status_code} detected, resetting httpx client")
+                await self.close()
+            raise
 
     async def _stream_openai_compatible(
         self,
