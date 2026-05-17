@@ -9,3 +9,8 @@ alembic/versions/__pycache__
 .vscode
 *.db
 *.db-journal
+venv/
+.venv/
+.pytest_cache/
+tests/
+*.egg-info
