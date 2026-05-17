@@ -113,7 +113,7 @@ export default function Dashboard() {
         type: 'bar',
         data: roadTypeKeys.map((k) => stats.road_types[k]),
         itemStyle: {
-          color: (params: any) => ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'][params.dataIndex],
+          color: (params: unknown) => ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'][(params as { dataIndex?: number }).dataIndex ?? 0],
         },
       },
     ],

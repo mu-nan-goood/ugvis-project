@@ -53,8 +53,11 @@ export default function Auth() {
         setConfirmPassword('')
         alert('注册成功，请登录')
       }
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail
+    } catch (err: unknown) {
+      const resp = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { detail?: string } } }).response
+        : null
+      const msg = resp?.data?.detail
       if (msg === '无效的认证凭据') {
         setError('用户名或密码错误')
       } else if (msg === 'Username already registered') {

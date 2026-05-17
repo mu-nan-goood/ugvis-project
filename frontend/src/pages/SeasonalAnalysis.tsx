@@ -118,9 +118,10 @@ export default function SeasonalAnalysis() {
   const cvOption: EChartsOption = {
     title: { text: '季节变异系数(CV)分布', left: 'center' },
     tooltip: {
-      formatter: (params: any) => {
-        const d = params.data
-        return `CV: ${d[2].toFixed(1)}%<br/>平均GVI: ${d[3].toFixed(1)}%`
+      formatter: (params: unknown) => {
+        const d = (params as { data?: unknown[] }).data
+        if (!d || d.length < 4) return ''
+        return `CV: ${(d[2] as number).toFixed(1)}%<br/>平均GVI: ${(d[3] as number).toFixed(1)}%`
       },
     },
     visualMap: {

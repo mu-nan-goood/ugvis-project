@@ -119,6 +119,22 @@ export const SEASON_GVI_FIELD: Record<Season, keyof SeasonalGVI> = {
   winter: 'gvi_winter',
 }
 
+// ── Planning / Weak Areas ──────────────────────────────
+
+export interface WeakArea {
+  id: number
+  point_id: number
+  lat: number
+  lng: number
+  gvi_winter: number | null
+  gvi_spring: number | null
+  gvi_summer: number | null
+  gvi_autumn: number | null
+  road_type: string | null
+  priority: string
+  suggestion: string
+}
+
 // ── Map highlight / route ──────────────────────────────
 
 export interface HighlightPoint {

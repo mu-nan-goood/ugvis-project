@@ -150,6 +150,9 @@ class PlanningStats(BaseModel):
 class PlanningResponse(BaseModel):
     stats: PlanningStats
     weak_areas: List[WeakArea]
+    total: int = 0
+    skip: int = 0
+    limit: int = 50
 
 # === 数据导入相关 ===
 

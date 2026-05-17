@@ -1,18 +1,6 @@
 // Planning page shared types and constants
 
-export interface WeakArea {
-  id: number
-  point_id: number
-  lat: number
-  lng: number
-  gvi_winter: number | null
-  gvi_spring: number | null
-  gvi_summer: number | null
-  gvi_autumn: number | null
-  road_type: string | null
-  priority: string
-  suggestion: string
-}
+export type { WeakArea } from '../../types'
 
 export interface PlanningStats {
   high_priority: number

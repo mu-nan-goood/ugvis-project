@@ -67,8 +67,8 @@ export default function RouteAnalysisPanel({
         lengthDiff: comparison.comparison.length_diff_m,
       })
       onGreenRouteFound?.(greenCoords)
-    } catch (err: any) {
-      setError(err?.message || '分析失败')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '分析失败')
     } finally {
       setLoading(false)
     }

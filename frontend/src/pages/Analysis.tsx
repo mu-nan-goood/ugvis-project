@@ -103,9 +103,10 @@ export default function Analysis() {
   const localR2Option: EChartsOption = {
     title: { text: `${MODEL_LABELS[activeModel]} — 局部R²分布`, left: 'center' },
     tooltip: {
-      formatter: (params: any) => {
-        const d = params.data
-        return `R²: ${d[2].toFixed(3)}<br/>经度: ${d[0].toFixed(4)}<br/>纬度: ${d[1].toFixed(4)}`
+      formatter: (params: unknown) => {
+        const d = (params as { data?: unknown[] }).data
+        if (!d || d.length < 3) return ''
+        return `R²: ${(d[2] as number).toFixed(3)}<br/>经度: ${(d[0] as number).toFixed(4)}<br/>纬度: ${(d[1] as number).toFixed(4)}`
       },
     },
     visualMap: {

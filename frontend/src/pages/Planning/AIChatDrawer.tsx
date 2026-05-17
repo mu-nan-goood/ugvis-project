@@ -35,7 +35,7 @@ export default function AIChatDrawer({
   const [chatLoading, setChatLoading] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   // Track expert opinions for UI state (used by moderator stream)
-  const [_expertOpinions, setExpertOpinions] = useState<Record<string, { name: string; emoji: string; opinion: string }>>({})
+  const [, setExpertOpinions] = useState<Record<string, { name: string; emoji: string; opinion: string }>>({})
   const [moderatorText, setModeratorText] = useState('')
   const [panelActive, setPanelActive] = useState(false)
   const [expandedExperts, setExpandedExperts] = useState<Record<string, boolean>>({})
@@ -90,7 +90,7 @@ export default function AIChatDrawer({
         if (event.type === 'panel_start') {
           onMessagesChange([...currentMessages, {
             role: 'system',
-            content: `🎯 专家小组启动，参与专家：${event.experts?.map((e: any) => e.emoji + e.name).join('、') || ''}`
+            content: `🎯 专家小组启动，参与专家：${event.experts?.map((e: { emoji: string; name: string }) => e.emoji + e.name).join('、') || ''}`
           }])
         } else if (event.type === 'expert_done') {
           const expertId = event.expert_id
@@ -130,10 +130,11 @@ export default function AIChatDrawer({
           break
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
       onMessagesChange(prev => [...prev, {
         role: 'assistant',
-        content: '专家小组请求失败：' + err.message,
+        content: '专家小组请求失败：' + errMsg,
       }])
     } finally {
       setChatLoading(false)
@@ -144,7 +145,7 @@ export default function AIChatDrawer({
   async function handleNormalChat(userMsg: ChatMessage) {
     let fullText = ''
     const currentMessages = [...messages, userMsg]
-    let toolCalls: Array<{ name: string; arguments: Record<string, any>; result?: any }> = []
+    const toolCalls: Array<{ name: string; arguments: Record<string, unknown>; result?: unknown }> = []
     try {
       const history = currentMessages.filter((m) => m.role !== 'system')
       for await (const event of streamChat({
@@ -179,8 +180,9 @@ export default function AIChatDrawer({
       } else {
         onMessagesChange(prev => [...prev, { role: 'assistant', content: '（无响应）' }])
       }
-    } catch (err: any) {
-      onMessagesChange(prev => [...prev, { role: 'assistant', content: '请求失败: ' + err.message }])
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      onMessagesChange(prev => [...prev, { role: 'assistant', content: '请求失败: ' + errMsg }])
     } finally {
       setStreamingText('')
       setChatLoading(false)
@@ -293,7 +295,7 @@ export default function AIChatDrawer({
             )
           }
           if (msg.role === 'expert') {
-            const expertId = (msg as any).expert_id || idx
+            const expertId = msg.expert_id || idx
             const isExpanded = expandedExperts[expertId] !== false
             return (
               <div key={idx} className={`bg-amber-50 border border-amber-200 rounded-lg text-sm transition-all ${isExpanded ? 'px-4 py-3' : 'px-4 py-2'}`}>

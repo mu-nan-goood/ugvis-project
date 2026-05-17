@@ -10,6 +10,14 @@ interface Waypoint extends RouteCoord {
   id: number
 }
 
+const GVI_FILTER_MAP: Record<string, { min_gvi?: number; max_gvi?: number }> = {
+  all: {},
+  low: { max_gvi: 15 },
+  medium: { min_gvi: 15, max_gvi: 30 },
+  high: { min_gvi: 30 },
+}
+const ROAD_LABELS: Record<string, string> = { rc1: '快速路', rc2: '主干路', rc3: '次干路', rc4: '支路' }
+
 export default function MapView() {
   const [searchParams] = useSearchParams()
   const [season, setSeason] = useState<Season>('spring')
@@ -20,14 +28,6 @@ export default function MapView() {
   // ── GVI 过滤 ──────────────────────────────────────
   const [gviFilter, setGviFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
   const [roadFilter, setRoadFilter] = useState<string>('all')
-
-  const GVI_FILTER_MAP: Record<string, { min_gvi?: number; max_gvi?: number }> = {
-    all: {},
-    low: { max_gvi: 15 },
-    medium: { min_gvi: 15, max_gvi: 30 },
-    high: { min_gvi: 30 },
-  }
-  const ROAD_LABELS: Record<string, string> = { rc1: '快速路', rc2: '主干路', rc3: '次干路', rc4: '支路' }
 
   // ── 路线规划模式 ─────────────────────────────────────
   const [planningMode, setPlanningMode] = useState(false)
@@ -62,15 +62,15 @@ export default function MapView() {
     setLoading(true)
     setError(null)
     try {
-      const filters: Record<string, any> = { season, limit: 8000 }
+      const filters: Record<string, string | number | undefined> = { season, limit: 8000 }
       const gviRange = GVI_FILTER_MAP[gviFilter]
       if (gviRange.min_gvi !== undefined) filters.min_gvi = gviRange.min_gvi
       if (gviRange.max_gvi !== undefined) filters.max_gvi = gviRange.max_gvi
       if (roadFilter !== 'all') filters.road_type = roadFilter
       const data = await fetchMapPoints(filters)
       setPoints(data.points || [])
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }

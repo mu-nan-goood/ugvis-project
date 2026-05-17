@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { User, LoginRequest, RegisterRequest, AuthResponse, RouteCoord, RouteAnalysis, RouteComparison } from '../types'
+import type { User, LoginRequest, RegisterRequest, AuthResponse, RouteCoord, RouteAnalysis, RouteComparison, WeakArea } from '../types'
 
 const API_BASE = '/api'
 
@@ -185,11 +185,47 @@ export async function fetchAnalysisModels() {
   return data
 }
 
-// 规划决策（薄弱区）
-export async function fetchPlanningWeakAreas() {
-  const { data } = await api.get('/planning/weak-areas')
+// 规划决策（薄弱区，支持分页）
+export interface PlanningResponse {
+  stats: {
+    high_priority: number
+    medium_priority: number
+    low_priority: number
+    estimated_trees: number
+    estimated_gvi_improvement: number
+  }
+  weak_areas: WeakArea[]
+  total: number
+  skip: number
+  limit: number
+}
+
+
+export async function fetchPlanningWeakAreas(
+  params: { skip?: number; limit?: number; priority?: string } = {}
+): Promise<PlanningResponse> {
+  const { data } = await api.get('/planning/weak-areas', { params })
   return data
 }
+
+// ── SSE 事件类型定义 ──────────────────────────────────
+
+/** 专家小组 SSE 事件 */
+export type ExpertPanelEvent =
+  | { type: 'panel_start'; experts?: Array<{ emoji: string; name: string }> }
+  | { type: 'expert_done'; expert_id: string; expert_name: string; emoji?: string; opinion: string }
+  | { type: 'moderator_start' }
+  | { type: 'moderator_chunk'; content: string }
+  | { type: 'moderator_done'; content?: string }
+  | { type: 'panel_done' }
+  | { type: 'error'; content: string }
+
+/** 对话流 SSE 事件 */
+export type ChatStreamEvent =
+  | { type: 'chunk'; content: string }
+  | { type: 'tool_call_start'; name: string; arguments?: Record<string, unknown> }
+  | { type: 'tool_result'; name: string; data?: unknown; success: boolean; error?: string }
+  | { type: 'error'; content: string }
 
 // ── AI / LLM 相关 ──────────────────────────────────────
 
@@ -210,12 +246,12 @@ export interface ChatRequest {
   message: string
   history: ChatMessage[]
   llm_config?: LLMConfig
-  preferences?: Record<string, any>
+  preferences?: Record<string, unknown>
 }
 
 export interface RenovationAdviceRequest {
-  areas?: any[]
-  preferences?: Record<string, any>
+  areas?: unknown[]
+  preferences?: Record<string, unknown>
   llm_config?: LLMConfig
   system_prompt?: string
 }
@@ -231,7 +267,7 @@ export async function generateAdvice(request: RenovationAdviceRequest) {
 /**
  * 流式生成 AI 改造建议（SSE）
  */
-export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGenerator<any, void, unknown> {
+export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGenerator<ChatStreamEvent, void, unknown> {
   const response = await fetch('/api/planning/stream', {
     method: 'POST',
     headers: authHeaders(),
@@ -260,7 +296,7 @@ export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGene
       const match = line.match(/^data: (.+)$/m)
       if (match) {
         try {
-          yield JSON.parse(match[1])
+          yield JSON.parse(match[1]) as ChatStreamEvent
         } catch {
           // ignore parse error
         }
@@ -280,7 +316,7 @@ export async function chat(request: ChatRequest) {
 /**
  * 流式多轮对话（SSE）
  */
-export async function* streamChat(request: ChatRequest): AsyncGenerator<any, void, unknown> {
+export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStreamEvent, void, unknown> {
   const response = await fetch('/api/planning/chat-stream', {
     method: 'POST',
     headers: authHeaders(),
@@ -309,7 +345,7 @@ export async function* streamChat(request: ChatRequest): AsyncGenerator<any, voi
       const match = line.match(/^data: (.+)$/m)
       if (match) {
         try {
-          yield JSON.parse(match[1])
+          yield JSON.parse(match[1]) as ChatStreamEvent
         } catch {
           // ignore parse error
         }
@@ -446,7 +482,7 @@ export async function fetchExpertPanelExperts(): Promise<ExpertInfo[]> {
 
 export async function* streamExpertPanel(
   request: ChatRequest
-): AsyncGenerator<any, void, unknown> {
+): AsyncGenerator<ExpertPanelEvent, void, unknown> {
   const response = await fetch('/api/planning/expert-panel', {
     method: 'POST',
     headers: authHeaders(),
@@ -475,7 +511,7 @@ export async function* streamExpertPanel(
       const match = line.match(/^data: (.+)$/m)
       if (match) {
         try {
-          yield JSON.parse(match[1])
+          yield JSON.parse(match[1]) as ExpertPanelEvent
         } catch {
           // ignore parse error
         }

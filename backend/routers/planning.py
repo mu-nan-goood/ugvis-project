@@ -111,30 +111,44 @@ def _get_weak_areas_from_db(db: Session, limit: int = 500) -> List[Dict[str, Any
 
 
 @router.get("/weak-areas", response_model=PlanningResponse)
-def get_planning(db: Session = Depends(get_db)):
-    """规划决策：识别绿化薄弱区并给出改造建议"""
-    weak_rows = db.query(SamplingPoint).filter(
+def get_planning(
+    skip: int = 0,
+    limit: int = 50,
+    priority: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """规划决策：识别绿化薄弱区并给出改造建议（支持分页）"""
+    from sqlalchemy import func as sa_func
+
+    base_q = db.query(SamplingPoint).filter(
         SamplingPoint.gvi_winter != None,
         SamplingPoint.gvi_winter < 10,
-    ).all()
+    )
+
+    # Priority filter
+    if priority == "high":
+        base_q = base_q.filter(SamplingPoint.gvi_winter < 5)
+    elif priority == "medium":
+        base_q = base_q.filter(SamplingPoint.gvi_winter >= 5, SamplingPoint.gvi_winter < 8)
+    elif priority == "low":
+        base_q = base_q.filter(SamplingPoint.gvi_winter >= 8, SamplingPoint.gvi_winter < 10)
+
+    # Total count for pagination
+    total = base_q.count()
+
+    # Paginated query
+    weak_rows = base_q.order_by(SamplingPoint.gvi_winter.asc()).offset(skip).limit(limit).all()
 
     weak_areas = []
-    high_count = 0
-    medium_count = 0
-    low_count = 0
-
-    for idx, p in enumerate(weak_rows[:500]):
+    for idx, p in enumerate(weak_rows):
         winter_gvi = p.gvi_winter if p.gvi_winter else 0
 
         if winter_gvi < 5:
-            priority = "high"
-            high_count += 1
+            p_level = "high"
         elif winter_gvi < 8:
-            priority = "medium"
-            medium_count += 1
+            p_level = "medium"
         else:
-            priority = "low"
-            low_count += 1
+            p_level = "low"
 
         suggestion = _ROAD_SUGGESTIONS.get(
             p.road_type,
@@ -142,7 +156,7 @@ def get_planning(db: Session = Depends(get_db)):
         )
 
         weak_areas.append(WeakArea(
-            id=idx + 1,
+            id=skip + idx + 1,
             point_id=p.point_id,
             lat=p.lat,
             lng=p.lng,
@@ -151,19 +165,20 @@ def get_planning(db: Session = Depends(get_db)):
             gvi_summer=p.gvi_summer,
             gvi_autumn=p.gvi_autumn,
             road_type=p.road_type,
-            priority=priority,
+            priority=p_level,
             suggestion=suggestion,
         ))
 
-    # Single query for all priority counts
-    all_weak = db.query(SamplingPoint).filter(
-        SamplingPoint.gvi_winter != None,
-        SamplingPoint.gvi_winter < 10,
-    ).all()
-
-    high_total = sum(1 for p in all_weak if p.gvi_winter < 5)
-    med_total = sum(1 for p in all_weak if 5 <= p.gvi_winter < 8)
-    low_total = sum(1 for p in all_weak if 8 <= p.gvi_winter < 10)
+    # Global stats (always full counts, not filtered by priority param)
+    high_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
+        SamplingPoint.gvi_winter != None, SamplingPoint.gvi_winter < 5
+    ).scalar()
+    med_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
+        SamplingPoint.gvi_winter >= 5, SamplingPoint.gvi_winter < 8
+    ).scalar()
+    low_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
+        SamplingPoint.gvi_winter >= 8, SamplingPoint.gvi_winter < 10
+    ).scalar()
 
     stats = PlanningStats(
         high_priority=high_total,
@@ -173,7 +188,7 @@ def get_planning(db: Session = Depends(get_db)):
         estimated_gvi_improvement=round(min(15.0, high_total * 0.02 + med_total * 0.01), 1),
     )
 
-    return PlanningResponse(stats=stats, weak_areas=weak_areas)
+    return PlanningResponse(stats=stats, weak_areas=weak_areas, total=total, skip=skip, limit=limit)
 
 
 @router.post("/advice", response_model=RenovationAdviceResponse)

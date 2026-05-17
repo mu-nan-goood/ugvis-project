@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   fetchPlanningWeakAreas,
@@ -14,6 +14,8 @@ import AdvicePanel from './AdvicePanel'
 import WeakAreasTable from './WeakAreasTable'
 import AIChatDrawer from './AIChatDrawer'
 
+const PAGE_SIZE = 50
+
 export default function Planning() {
   const navigate = useNavigate()
   const [stats, setStats] = useState<PlanningStats | null>(null)
@@ -22,6 +24,11 @@ export default function Planning() {
   const [error, setError] = useState<string | null>(null)
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [filterRoadType, setFilterRoadType] = useState<string>('all')
+
+  // Pagination state
+  const [totalCount, setTotalCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   // AI Chat state
   const [chatOpen, setChatOpen] = useState(false)
@@ -44,18 +51,39 @@ export default function Planning() {
   // Selected point for AI context
   const [selectedPoint, setSelectedPoint] = useState<WeakArea | null>(null)
 
-  useEffect(() => {
-    fetchPlanningWeakAreas()
-      .then((data) => {
-        setStats(data.stats || null)
-        setWeakAreas(data.weak_areas || [])
-        setLoading(false)
+  // Fetch paginated data from API
+  const loadData = useCallback(async (page: number, priority: string, roadType: string) => {
+    setLoading(true)
+    try {
+      const priorityParam = priority !== 'all' ? priority : undefined
+      const data = await fetchPlanningWeakAreas({
+        skip: (page - 1) * PAGE_SIZE,
+        limit: PAGE_SIZE,
+        priority: priorityParam,
       })
-      .catch((err) => {
-        setError(err.message)
-        setLoading(false)
-      })
+      setStats(data.stats || null)
+      const areas = data.weak_areas || []
+      if (roadType !== 'all') {
+        setWeakAreas(areas.filter((a: WeakArea) => a.road_type === roadType))
+      } else {
+        setWeakAreas(areas)
+      }
+      setTotalCount(data.total || 0)
+      setError(null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  // Initial load + reload when page/filters change
+  useEffect(() => {
+    loadData(currentPage, filterPriority, filterRoadType)
+  }, [loadData, currentPage, filterPriority, filterRoadType])
+
+  // Reset page when filter changes
+  useEffect(() => { setCurrentPage(1) }, [filterPriority, filterRoadType])
 
   // Listen for AI ask events from MapView
   useEffect(() => {
@@ -106,8 +134,8 @@ export default function Planning() {
           break
         }
       }
-    } catch (err: any) {
-      setAdviceText('请求失败: ' + err.message)
+    } catch (err: unknown) {
+      setAdviceText('请求失败: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       setAdviceLoading(false)
     }
@@ -124,19 +152,15 @@ export default function Planning() {
     }))
   }
 
-  // ── Filter weak areas ────────────────────────────────
-  const filteredAreas = weakAreas.filter((area) => {
-    const matchPriority = filterPriority === 'all' || area.priority === filterPriority
-    const matchRoad = filterRoadType === 'all' || area.road_type === filterRoadType
-    return matchPriority && matchRoad
-  })
+  // ── Filter weak areas (road type client-side) ───────────
+  const filteredAreas = weakAreas
 
   const topHighlightIds = filteredAreas
     .filter((a) => a.priority === 'high')
     .slice(0, 10)
     .map((a) => a.point_id)
 
-  const areaIds = weakAreas.slice(0, 20).map((a) => String(a.point_id)).join(',')
+  const areaIds = filteredAreas.slice(0, 20).map((a) => String(a.point_id)).join(',')
 
   // ── Loading / Error states ──────────────────────────
   if (loading) {
@@ -252,7 +276,7 @@ export default function Planning() {
           </select>
         </div>
         <div className="ml-auto text-sm text-gray-500">
-          显示 {filteredAreas.length} / {weakAreas.length} 条
+          共 {totalCount} 条，第 {currentPage}/{totalPages} 页
         </div>
       </div>
 
@@ -263,6 +287,43 @@ export default function Planning() {
         onOpenInMap={openInMap}
         onAskAI={askAIAboutPoint}
       />
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <button
+            onClick={() => { setCurrentPage(1); }}
+            disabled={currentPage <= 1}
+            className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            首页
+          </button>
+          <button
+            onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); }}
+            disabled={currentPage <= 1}
+            className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            上一页
+          </button>
+          <span className="px-3 py-1 text-sm text-gray-600">
+            {currentPage} / {totalPages}
+          </span>
+          <button
+            onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); }}
+            disabled={currentPage >= totalPages}
+            className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            下一页
+          </button>
+          <button
+            onClick={() => { setCurrentPage(totalPages); }}
+            disabled={currentPage >= totalPages}
+            className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            末页
+          </button>
+        </div>
+      )}
 
       {/* AI Chat Drawer */}
       <AIChatDrawer
