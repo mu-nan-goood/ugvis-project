@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import GVIMap from '../components/GVIMap'
+import GVIMap, { type DisplayMode } from '../components/GVIMap'
 import RouteAnalysisPanel from '../components/RouteAnalysisPanel'
 import type { MapPoint, Season, RouteCoord } from '../types'
 import { SEASON_LABELS } from '../types'
@@ -28,6 +28,9 @@ export default function MapView() {
   // ── GVI 过滤 ──────────────────────────────────────
   const [gviFilter, setGviFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
   const [roadFilter, setRoadFilter] = useState<string>('all')
+
+  // ── 显示模式: 散点 / 热力图 ──────────────────────────
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('points')
 
   // ── 路线规划模式 ─────────────────────────────────────
   const [planningMode, setPlanningMode] = useState(false)
@@ -62,7 +65,10 @@ export default function MapView() {
     setLoading(true)
     setError(null)
     try {
-      const filters: Record<string, string | number | undefined> = { season, limit: 8000 }
+      // Heatmap mode can handle more points (no DOM markers),
+      // point mode is limited by CircleMarker rendering performance
+      const limit = displayMode === 'heatmap' ? 20000 : 8000
+      const filters: Record<string, string | number | undefined> = { season, limit }
       const gviRange = GVI_FILTER_MAP[gviFilter]
       if (gviRange.min_gvi !== undefined) filters.min_gvi = gviRange.min_gvi
       if (gviRange.max_gvi !== undefined) filters.max_gvi = gviRange.max_gvi
@@ -74,7 +80,7 @@ export default function MapView() {
     } finally {
       setLoading(false)
     }
-  }, [season, gviFilter, roadFilter])
+  }, [season, gviFilter, roadFilter, displayMode])
 
   useEffect(() => {
     loadData()
@@ -135,6 +141,31 @@ export default function MapView() {
                 {{ all: '全部', low: '<15%', medium: '15-30%', high: '>30%' }[f]}
               </button>
             ))}
+          </div>
+
+          {/* 显示模式切换 */}
+          <div className='flex items-center gap-1.5'>
+            <span className='text-xs text-gray-500'>视图:</span>
+            <button
+              onClick={() => setDisplayMode('points')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                displayMode === 'points'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              🔵 散点
+            </button>
+            <button
+              onClick={() => setDisplayMode('heatmap')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                displayMode === 'heatmap'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              🌡️ 热力图
+            </button>
           </div>
 
           {/* 道路类型过滤 */}
@@ -211,6 +242,7 @@ export default function MapView() {
               highlightIds={highlightIds}
               highlightRoute={highlightRoute}
               initialCenter={initCenter}
+              displayMode={displayMode}
               planningMode={planningMode}
               routeWaypoints={waypoints.map((w) => ({ lat: w.lat, lng: w.lng }))}
               extraRouteCoords={highlightCoords}
@@ -243,20 +275,41 @@ export default function MapView() {
       {/* 图例 */}
       {!planningMode && (
         <div className="card">
-          <h3 className="text-sm font-semibold mb-2">图例</h3>
+          <h3 className="text-sm font-semibold mb-2">
+            {displayMode === 'heatmap' ? '热力图图例' : '图例'}
+          </h3>
           <div className="flex flex-wrap gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-green-600" />
-              <span>GVI &gt; 30% (高绿化)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-yellow-500" />
-              <span>GVI 15-30% (中等绿化)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-red-500" />
-              <span>GVI &lt; 15% (低绿化)</span>
-            </div>
+            {displayMode === 'heatmap' ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="flex h-3 w-20 rounded-sm overflow-hidden">
+                    <div className='flex-1' style={{ background: '#1a1a2e' }} />
+                    <div className='flex-1' style={{ background: '#dc2626' }} />
+                    <div className='flex-1' style={{ background: '#f97316' }} />
+                    <div className='flex-1' style={{ background: '#eab308' }} />
+                    <div className='flex-1' style={{ background: '#22c55e' }} />
+                    <div className='flex-1' style={{ background: '#16a34a' }} />
+                  </div>
+                  <span>0% → 50%+ GVI</span>
+                </div>
+                <p className='text-xs text-gray-500'>热力图颜色越绿，表示该区域绿视率越高</p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-green-600" />
+                  <span>GVI &gt; 30% (高绿化)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-yellow-500" />
+                  <span>GVI 15-30% (中等绿化)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-red-500" />
+                  <span>GVI &lt; 15% (低绿化)</span>
+                </div>
+              </>
+            )}
             {highlightIds.length > 0 && (
               <div className="flex items-center gap-2">
                 <div

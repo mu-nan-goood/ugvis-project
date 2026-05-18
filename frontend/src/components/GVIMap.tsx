@@ -1,7 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet.heat'
 import type { MapPoint, Season, RouteCoord } from '../types'
+
+export type DisplayMode = 'points' | 'heatmap'
 
 interface GVIMapProps {
   points: MapPoint[]
@@ -12,6 +15,9 @@ interface GVIMapProps {
   initialCenter?: { lat: number; lng: number }
   onPointClick?: (point: MapPoint) => void
   onHighlightClick?: (id: number) => void
+
+  /** 显示模式: 散点 / 热力图 */
+  displayMode?: DisplayMode
 
   // 路线规划模式
   planningMode?: boolean
@@ -34,6 +40,7 @@ export default function GVIMap({
   onPointClick,
   onHighlightClick,
   initialCenter,
+  displayMode = 'points',
   planningMode = false,
   routeWaypoints = [],
   extraRouteCoords = [],
@@ -43,6 +50,7 @@ export default function GVIMap({
   const mapRef = useRef<HTMLDivElement>(null)
   const leafletMap = useRef<L.Map | null>(null)
   const markersLayer = useRef<L.LayerGroup | null>(null)
+  const heatmapLayerRef = useRef<L.Layer | null>(null)
   const highlightLayer = useRef<L.LayerGroup | null>(null)
   const routeLayer = useRef<L.LayerGroup | null>(null)
   const planningLayer = useRef<L.LayerGroup | null>(null)
@@ -88,6 +96,67 @@ export default function GVIMap({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planningMode, onMapClick])
+
+  // ─── Heatmap layer ──────────────────────────────────
+  const renderHeatmap = useCallback(() => {
+    if (!leafletMap.current) return
+
+    // Remove existing heatmap
+    if (heatmapLayerRef.current) {
+      leafletMap.current.removeLayer(heatmapLayerRef.current)
+      heatmapLayerRef.current = null
+    }
+
+    if (displayMode !== 'heatmap') return
+
+    const heatData: [number, number, number][] = []
+    points.forEach((point) => {
+      if (point.gvi == null) return
+      // Normalize GVI to 0-1 range for heat intensity
+      // Typical GVI range: 0-50, cap at 50 for normalization
+      const intensity = Math.min(point.gvi / 50, 1)
+      heatData.push([point.lat, point.lng, intensity])
+    })
+
+    if (heatData.length === 0) return
+
+    const heatLayer = L.heatLayer(heatData, {
+      radius: 20,
+      blur: 15,
+      maxZoom: 17,
+      minOpacity: 0.3,
+      max: 1,
+      gradient: {
+        0.0: '#1a1a2e',   // very low → dark
+        0.2: '#dc2626',   // low → red
+        0.4: '#f97316',   // medium-low → orange
+        0.5: '#eab308',   // medium → yellow
+        0.7: '#22c55e',   // good → green
+        0.85: '#16a34a',  // high → darker green
+        1.0: '#065f46',   // very high → deep green
+      },
+    })
+
+    heatLayer.addTo(leafletMap.current)
+    heatmapLayerRef.current = heatLayer
+  }, [points, displayMode])
+
+  // ─── Display mode switching ───────────────────────────
+  useEffect(() => {
+    if (!leafletMap.current) return
+
+    if (displayMode === 'heatmap') {
+      // Hide point markers, show heatmap
+      if (markersLayer.current) markersLayer.current.clearLayers()
+      renderHeatmap()
+    } else {
+      // Remove heatmap, markers will re-render via their own useEffect
+      if (heatmapLayerRef.current) {
+        leafletMap.current.removeLayer(heatmapLayerRef.current)
+        heatmapLayerRef.current = null
+      }
+    }
+  }, [displayMode, renderHeatmap, points, season])
 
   // ─── Cursor style ────────────────────────────────────
   useEffect(() => {
@@ -318,20 +387,45 @@ export default function GVIMap({
       <div ref={mapRef} className='w-full h-full rounded-lg' />
       {/* GVI Color Legend */}
       <div className='absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-md px-3 py-2 z-[1000] text-xs'>
-        <p className='font-medium text-gray-700 mb-1'>GVI 色带</p>
-        <div className='flex items-center gap-1'>
-          <span className='text-gray-500'>0%</span>
-          <div className='flex h-3 w-24 rounded-sm overflow-hidden'>
-            <div className='flex-1 bg-red-500' />
-            <div className='flex-1 bg-yellow-500' />
-            <div className='flex-1 bg-green-500' />
-          </div>
-          <span className='text-gray-500'>30%+</span>
-        </div>
-        <div className='flex justify-between mt-0.5'>
-          <span className='text-red-500'>低</span>
-          <span className='text-green-600'>高</span>
-        </div>
+        {displayMode === 'heatmap' ? (
+          <>
+            <p className='font-medium text-gray-700 mb-1'>GVI 热力图</p>
+            <div className='flex items-center gap-1'>
+              <span className='text-gray-500'>0%</span>
+              <div className='flex h-3 w-32 rounded-sm overflow-hidden'>
+                <div className='flex-1' style={{ background: '#1a1a2e' }} />
+                <div className='flex-1' style={{ background: '#dc2626' }} />
+                <div className='flex-1' style={{ background: '#f97316' }} />
+                <div className='flex-1' style={{ background: '#eab308' }} />
+                <div className='flex-1' style={{ background: '#22c55e' }} />
+                <div className='flex-1' style={{ background: '#16a34a' }} />
+                <div className='flex-1' style={{ background: '#065f46' }} />
+              </div>
+              <span className='text-gray-500'>50%+</span>
+            </div>
+            <div className='flex justify-between mt-0.5'>
+              <span className='text-red-500'>薄弱</span>
+              <span className='text-green-700'>优质</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className='font-medium text-gray-700 mb-1'>GVI 色带</p>
+            <div className='flex items-center gap-1'>
+              <span className='text-gray-500'>0%</span>
+              <div className='flex h-3 w-24 rounded-sm overflow-hidden'>
+                <div className='flex-1 bg-red-500' />
+                <div className='flex-1 bg-yellow-500' />
+                <div className='flex-1 bg-green-500' />
+              </div>
+              <span className='text-gray-500'>30%+</span>
+            </div>
+            <div className='flex justify-between mt-0.5'>
+              <span className='text-red-500'>低</span>
+              <span className='text-green-600'>高</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
