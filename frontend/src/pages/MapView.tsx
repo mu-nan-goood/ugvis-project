@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import GVIMap, { type DisplayMode } from '../components/GVIMap'
+import GVIMap, { type DisplayMode, type BaseMap } from '../components/GVIMap'
 import RouteAnalysisPanel from '../components/RouteAnalysisPanel'
 import type { MapPoint, Season, RouteCoord } from '../types'
 import { SEASON_LABELS } from '../types'
@@ -31,6 +31,9 @@ export default function MapView() {
 
   // ── 显示模式: 散点 / 热力图 ──────────────────────────
   const [displayMode, setDisplayMode] = useState<DisplayMode>('points')
+
+  // ── 底图切换 ────────────────────────────────────────
+  const [baseMap, setBaseMap] = useState<BaseMap>('gaode')
 
   // ── 路线规划模式 ─────────────────────────────────────
   const [planningMode, setPlanningMode] = useState(false)
@@ -168,6 +171,28 @@ export default function MapView() {
             </button>
           </div>
 
+          {/* 底图切换 */}
+          <div className='flex items-center gap-1.5'>
+            <span className='text-xs text-gray-500'>底图:</span>
+            {([
+              { key: 'gaode', label: '📍 高德' },
+              { key: 'gaode-satellite', label: '🛰 卫星' },
+              { key: 'osm', label: '🗺 OSM' },
+            ] as const).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setBaseMap(key)}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  baseMap === key
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* 道路类型过滤 */}
           <div className='flex items-center gap-1.5'>
             <span className='text-xs text-gray-500'>道路:</span>
@@ -243,6 +268,7 @@ export default function MapView() {
               highlightRoute={highlightRoute}
               initialCenter={initCenter}
               displayMode={displayMode}
+              baseMap={baseMap}
               planningMode={planningMode}
               routeWaypoints={waypoints.map((w) => ({ lat: w.lat, lng: w.lng }))}
               extraRouteCoords={highlightCoords}
