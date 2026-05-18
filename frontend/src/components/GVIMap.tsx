@@ -72,6 +72,8 @@ interface GVIMapProps {
   extraRouteColor?: string
   /** 地图点击回调 */
   onMapClick?: (lat: number, lng: number) => void
+  /** 街景查看回调 */
+  onStreetView?: (point: MapPoint) => void
 }
 
 export default function GVIMap({
@@ -90,6 +92,7 @@ export default function GVIMap({
   extraRouteCoords = [],
   extraRouteColor = '#16a34a',
   onMapClick,
+  onStreetView,
 }: GVIMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const leafletMap = useRef<L.Map | null>(null)
@@ -174,7 +177,22 @@ export default function GVIMap({
       }
     })
 
+    // 街景查看事件监听
+    const streetViewHandler = (e: Event) => {
+      const pointId = (e as CustomEvent).detail?.pointId
+      if (pointId != null && onStreetView) {
+        const p = pointById.current.get(pointId)
+        if (p) onStreetView(p)
+      }
+    }
+    window.addEventListener('ugvis-streetview', streetViewHandler as EventListener)
+
+    const cleanupStreetView = () => {
+      window.removeEventListener('ugvis-streetview', streetViewHandler as EventListener)
+    }
+
     return () => {
+      cleanupStreetView()
       if (leafletMap.current) {
         leafletMap.current.remove()
         leafletMap.current = null
@@ -282,6 +300,7 @@ export default function GVIMap({
           <p>道路: ${point.road_type || 'N/A'}</p>
           <hr style="margin:4px 0;border-color:#eee">
           <p style="font-size:11px;color:#666">坐标: ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}</p>
+          <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:4px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
         </div>
       `)
 
@@ -328,6 +347,7 @@ export default function GVIMap({
           <p>道路: ${point.road_type || 'N/A'}</p>
           <hr style="margin:4px 0;border-color:#eee">
           <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.id}}}))">🤖 询问AI关于此点</p>
+          <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:2px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
         </div>
       `)
 

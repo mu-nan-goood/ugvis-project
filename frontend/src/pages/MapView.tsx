@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import GVIMap, { type DisplayMode, type BaseMap } from '../components/GVIMap'
 import RouteAnalysisPanel from '../components/RouteAnalysisPanel'
+import StreetViewPanel from '../components/StreetViewPanel'
 import type { MapPoint, Season, RouteCoord } from '../types'
 import { SEASON_LABELS } from '../types'
 import { fetchMapPoints } from '../utils/api'
@@ -40,6 +41,9 @@ export default function MapView() {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([])
   const [, setRouteCoords] = useState<RouteCoord[]>([])
   const [highlightCoords, setHighlightCoords] = useState<RouteCoord[]>([])
+
+  // ── 街景面板 ────────────────────────────────────────
+  const [streetViewPoint, setStreetViewPoint] = useState<MapPoint | null>(null)
 
   // ── URL 参数解析 ─────────────────────────────────────
   const rawHighlight = searchParams.get('highlight') ?? ''
@@ -270,6 +274,7 @@ export default function MapView() {
               displayMode={displayMode}
               baseMap={baseMap}
               planningMode={planningMode}
+              onStreetView={(point) => setStreetViewPoint(point)}
               routeWaypoints={waypoints.map((w) => ({ lat: w.lat, lng: w.lng }))}
               extraRouteCoords={highlightCoords}
               extraRouteColor="#16a34a"
@@ -354,6 +359,12 @@ export default function MapView() {
           </div>
         </div>
       )}
+
+      {/* 街景面板 */}
+      <StreetViewPanel
+        point={streetViewPoint}
+        onClose={() => setStreetViewPoint(null)}
+      />
     </div>
   )
 }
