@@ -11,22 +11,28 @@
 | 模块 | 说明 |
 |:---|:---|
 | 总览面板 | 系统关键指标、四季 GVI 分布统计 |
-| 地图可视化 | 采样点空间分布，支持四季 GVI 切换、高亮点位、路线规划 |
-| 空间分析 | 道路类型 + GVI/NDVI 相关性分析 |
-| 季节分析 | 变异系数、稳定性分级、五数概括 |
-| AI 改造建议 | **多 LLM 支持**、流式输出、多轮对话、Function Calling |
-| 地图交互闭环 | 薄弱区域 ↔ 地图双向跳转、路线可视化 |
-| 数据管理 | 采样点查询、筛选、CSV 导入导出 |
+| 地图可视化 | 采样点空间分布 + 热力图，支持四季 GVI 切换、高亮点位、路线规划、街景浏览 |
+| 空间分析 | 道路类型 + GVI/NDVI 相关性分析 + LR/GWR/MGWR 模型对比 |
+| 季节分析 | 变异系数(CV)热力图、稳定性分级、五数概括 |
+| AI 改造建议 | 多 LLM 支持、SSE 流式输出、多轮对话、Function Calling |
+| 专家面板 | 4 专家（城市规划/生态学/数据分析/经济评估）并行 + Moderator 投票融合 |
+| RAG 知识库 | ChromaDB + Nomic Embedding，正向反馈自动索引，30+ 条种子建议 |
+| 地图交互闭环 | 薄弱区域 ↔ 地图双向跳转、路线可视化、GVI 剖面图 |
+| 建议质量反馈 | 👍👎 评分 + 文字评论 + 统计 + RAG 自动索引 |
+| 数据管理 | 采样点查询、筛选、CSV/GeoJSON 导入导出、地图联动 |
+| 用户认证 | JWT + bcrypt，角色控制(admin/analyst/guest)，速率限制 |
 
 ---
 
 ## 技术栈
 
-**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet + ECharts
+**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet(preferCanvas) + ECharts
 
-**后端**: FastAPI + SQLAlchemy + SQLite + Pandas
+**后端**: FastAPI + SQLAlchemy + SQLite(201K点/40K道路/472K模型结果) + Alembic
 
-**AI**: DeepSeek / Kimi / Claude / OpenAI / 自定义 LLM
+**AI**: DeepSeek / Kimi / Claude / OpenAI / 自定义 LLM + Expert Panel + RAG
+
+**嵌入模型**: LM Studio (nomic-embed-text-v2-moe, 768维) / Ollama (nomic-embed-text)
 
 ---
 
@@ -35,51 +41,78 @@
 ```
 ugvis-project/
 ├── backend/                 # FastAPI 后端
-│   ├── main.py             # 应用入口
-│   ├── models.py           # SQLAlchemy 数据模型
-│   ├── schemas.py          # Pydantic schemas（含 LLM 请求/响应模型）
-│   ├── database.py         # 数据库连接
-│   ├── config.py           # 配置管理
-│   ├── routers/            # API 路由
-│   │   ├── statistics.py   # 统计端点
-│   │   ├── points.py       # 采样点端点（含 CSV 导入）
-│   │   ├── roads.py        # 道路端点
-│   │   └── planning.py     # AI 改造建议端点
+│   ├── main.py             # 应用入口 + CORS + 速率限制
+│   ├── models.py           # SQLAlchemy 数据模型 (6表)
+│   ├── schemas.py          # Pydantic schemas（含密码复杂度校验）
+│   ├── database.py         # 数据库连接 + 索引
+│   ├── config.py           # 配置管理 + JWT 安全检查
+│   ├── routers/            # API 路由 (40端点)
+│   │   ├── auth.py         # 认证 (登录/注册/刷新/角色管理)
+│   │   ├── planning.py     # AI 建议 + SSE + 专家面板
+│   │   ├── feedback.py     # 建议反馈 + 统计
+│   │   ├── routing.py      # 路线分析 + 替代路线 (Haversine)
+│   │   ├── analysis.py     # 空间分析 + 模型对比
+│   │   ├── points.py       # 采样点 CRUD + CSV/GeoJSON 导入导出
+│   │   ├── seasonal.py     # 四季分析
+│   │   └── stats.py        # 全局统计
 │   ├── services/           # 业务逻辑层
-│   │   ├── llm_client.py   # 多厂商 LLM 客户端（DeepSeek/Kimi/Claude/OpenAI）
-│   │   ├── openclaw_client.py  # OpenClaw agent 调用
-│   │   ├── prompt_templates.py # AI Prompt 模板管理
+│   │   ├── llm_client.py   # 多厂商 LLM 客户端 (SSE流式+FC+连接池重建)
+│   │   ├── expert_panel.py # 4专家并行 + asyncio.Queue + Moderator
+│   │   ├── knowledge_base.py # ChromaDB RAG 管理
+│   │   ├── embedding.py    # 向量嵌入 (requests+asyncio.to_thread)
+│   │   ├── auth.py         # JWT + bcrypt + 竞态处理
 │   │   └── tools/          # Function Calling 工具注册
-│   │       └── registry.py # get_weak_areas / get_statistics / get_seasonal_gvi 等
+│   │       └── registry.py # 5 工具: weak_areas/statistics/seasonal_gvi/point_detail/templates
+│   ├── alembic/            # 数据库迁移 (2 迁移文件)
+│   ├── scripts/            # 数据填充脚本 (种子知识库)
+│   ├── tests/              # pytest 测试 (27 用例)
 │   ├── ugvis.db            # SQLite 数据库
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/                # React 前端
 │   ├── src/
-│   │   ├── pages/          # 页面组件（Overview / MapView / Analysis / Planning 等）
-│   │   ├── components/     # 通用组件（GVIMap / StatCard / DataTable 等）
-│   │   └── utils/          # API 调用、类型定义
+│   │   ├── pages/          # 页面组件 (Overview/MapView/Analysis/Planning/Seasonal/DataManagement/Auth)
+│   │   ├── components/     # 通用组件 (GVIMap/RouteProfileChart/StreetViewPanel)
+│   │   ├── hooks/          # 认证 Hook (useAuth)
+│   │   ├── utils/          # API 调用 + 坐标转换 + 类型定义
+│   │   └── types/          # TypeScript 类型 (WeakArea 联合类型)
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── package.json
-├── docker-compose.yml        # Docker 编排（后端 + 前端 + nginx）
-└── data/                    # 研究数据（不上传 Git）
+├── docker-compose.yml       # Docker 编排 (后端 + 前端)
+├── .env.example            # 后端环境变量模板
+├── frontend/.env.example   # 前端环境变量模板
+└── data/                   # 研究数据（不上传 Git）
 ```
 
 ---
 
 ## 快速启动
 
-### 手动启动
+### 1. 配置环境变量
 
-**后端**（需在 `backend/` 目录运行，使 SQLite 相对路径解析正确）:
+```powershell
+# 后端
+cd backend
+cp .env.example .env
+# 编辑 .env，填入 DEEPSEEK_API_KEY 和 JWT_SECRET_KEY
+
+# 前端
+cd ../frontend
+cp .env.example .env
+# 编辑 .env，填入 VITE_AMAP_KEY 和 VITE_BAIDU_AK（可选，街景功能需要）
+```
+
+### 2. 启动后端
+
 ```powershell
 cd E:\ugvis-project\backend
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
 python -m uvicorn main:app --reload --port 8000 --host 127.0.0.1
 ```
 
-**前端**（新窗口，需 --host 监听 IPv4）：
+### 3. 启动前端
+
 ```powershell
 cd E:\ugvis-project\frontend
 npm install
@@ -95,11 +128,9 @@ cd E:\ugvis-project
 docker-compose up -d
 ```
 
-访问 http://localhost:3000
-
 ---
 
-## AI 改造建议功能
+## AI 功能
 
 ### 支持的 LLM 厂商
 
@@ -111,113 +142,93 @@ docker-compose up -d
 | OpenAI | gpt-4o | OpenAI 兼容 |
 | 自定义 | 用户指定 | OpenAI 兼容 |
 
-### AI 功能特性
+### 功能特性
 
-- **流式输出（SSE）**：实时逐字显示建议内容
+- **SSE 流式输出**：实时逐字显示建议内容，50ms/20字符缓冲批量推送
 - **多轮对话**：支持追问、方案调整、预算协商
-- **Function Calling**：AI 可调用5个工具获取真实数据
+- **Function Calling**：AI 可调用 5 个工具获取真实数据
   - `get_weak_areas` — 获取绿化薄弱区域列表
   - `get_statistics` — 获取全局统计摘要
   - `get_seasonal_gvi` — 获取四季 GVI 分布
   - `get_point_detail` — 获取点位详细信息
   - `get_prompt_templates` — 获取 Prompt 模板列表
-- **地图交互闭环**：AI 建议点位可直接在地图上高亮显示和规划路线
-
-### 配置 LLM
-
-1. 打开 Planning 页面
-2. 点击"⚙️ LLM 配置"展开配置面板
-3. 选择厂商、输入 API Key、选择/自定义模型
-4. 配置自动保存到浏览器 localStorage
+- **Expert Panel**：4 专家并行分析 + Moderator 投票融合，SSE 实时推送
+- **RAG 知识库**：ChromaDB 存储历史正向建议，检索增强新建议质量
+- **地图交互闭环**：AI 建议点位直接在地图高亮 + 路线规划 + GVI 剖面图
+- **建议质量反馈**：👍👎 评分 + 文字评论，正向反馈自动索引到 RAG 知识库
+- **5 种 Prompt 模板**：按场景动态切换（薄弱区域/路线规划/季节分析/预算约束/综合规划）
 
 ---
 
-## API 文档
+## 认证系统
 
-后端启动后访问: http://localhost:8000/docs
-
-### 主要端点
-
-| 方法 | 路径 | 说明 |
-|:---|:---|:---|
-| GET | `/api/stats` | 全局统计摘要 |
-| GET | `/api/points` | 采样点列表（分页） |
-| POST | `/api/points/import` | CSV 批量导入采样点 |
-| GET | `/api/roads` | 道路统计列表 |
-| GET | `/api/map/points` | 地图采样点（采样） |
-| GET | `/api/seasonal-analysis` | 四季分析统计 |
-| GET | `/api/spatial-analysis` | 空间分析（按道路类型） |
-| GET | `/api/planning/weak-areas` | 绿化薄弱区域列表 |
-| GET | `/api/planning/statistics` | 薄弱区域统计 |
-| POST | `/api/planning/renovation-advice` | 生成 AI 改造建议 |
-| POST | `/api/planning/chat-stream` | AI 多轮对话（流式） |
+| 特性 | 说明 |
+|------|------|
+| 算法 | JWT (HS256) + bcrypt |
+| 角色 | admin / analyst / guest |
+| 速率限制 | login 5/min, refresh 10/min, password-change 3/min |
+| 密码策略 | ≥8字符 + 大写 + 小写 + 数字 + 特殊字符 |
+| Token 管理 | sessionStorage 存储 + 401 自动刷新队列 |
 
 ---
 
 ## 数据库
 
-- **类型**: SQLite (`backend/ugvis.db`)
-- **采样点**: 201,377 条（含四季 GVI/NDVI 值）
-- **道路段**: 40,006 条
-- **字段**: `rc1-rc4` 四类道路类型
+| 表 | 行数 | 说明 |
+|----|------|------|
+| sampling_points | 201,377 | 四季 GVI/NDVI + road_type |
+| road_segments | 40,006 | 道路段几何 |
+| model_results | 472,599 | LR/GWR/MGWR 模型结果 |
+| seasonal_metrics | 16 | 4 道路类型 × 4 季节 |
+| advice_feedback | 11 | AI 建议反馈 |
+| users | 4 | 用户账户 |
 
 ---
 
-## 开发说明
+## 安全审计
 
-### 环境要求
+项目已完成 7 维度安全审计 + 运行时逻辑缺陷审查：
+
+| 维度 | 状态 | 关键修复 |
+|------|------|---------|
+| 1. 安全防护 | ✅ | 速率限制 / JWT 弱密钥检查 / 密码复杂度 / XSS / CORS / CSV 大小限制 |
+| 2. 数据一致性 | ✅ | FK ondelete SET NULL / IntegrityError 处理 / 导出行数上限 |
+| 3. API 契约 | ✅ | Token expires_in / season 参数 / 英文 key 映射 |
+| 4. 前端安全 | ✅ | Popup XSS 转义 / postMessage origin / 密码校验对齐 / 移除 rehype-raw |
+| 5. 依赖安全 | ✅ | 41 CVE 均为间接依赖，无可直接利用项 |
+| 6. 配置部署 | ✅ | 绑定 127.0.0.1 / SSE 固定错误提示 |
+| 7. 认证授权 | ✅ | JWT 无状态设计 / role 从 DB 验证 |
+
+---
+
+## API 文档
+
+后端启动后访问: http://localhost:8000/docs (Swagger UI)
+
+---
+
+## 环境要求
 
 - Python 3.10+
 - Node.js 18+
 - npm 9+
-
-### 关键配置文件
-
-| 文件 | 说明 |
-|------|------|
-| `backend/config.py` | 数据库路径、CORS 配置 |
-| `.env`（可选） | LLM API Key 环境变量 |
-| `docker-compose.yml` | Docker 编排配置 |
-
-### AI 开发（Function Calling）
-
-工具定义在 `backend/services/tools/registry.py`，schema 格式为 OpenAI 嵌套格式。
-
-添加新工具：
-1. 在 `registry.py` 中定义工具函数
-2. 在 `TOOL_REGISTRY` 中注册
-3. 工具自动暴露给 LLM
+- (可选) LM Studio + nomic-embed-text-v2-moe（RAG 知识库）
+- (可选) Docker Desktop（容器化部署）
 
 ---
 
-## 已完成开发计划
-
-- [x] 项目基础架构
-- [x] 前端页面框架（React + TypeScript）
-- [x] 后端 API 设计（FastAPI + 路由模块化）
-- [x] 数据库导入（201,377 采样点 + 40,006 道路段）
-- [x] 四季 GVI/NDVI 分析
-- [x] 空间分析（道路类型分组）
-- [x] 规划决策模块
-- [x] **AI 改造建议**（流式输出、多轮对话、Function Calling）
-- [x] **地图交互闭环**（双向跳转、高亮显示、路线可视化）
-- [ ] 用户认证
-- [x] 部署文档（见 `DEPLOYMENT.md`）
-
----
-
-## 升级路线（8 项，已完成 5 项）
+## 升级路线（8/8 已完成）
 
 | # | 改进项 | 状态 |
 |:--|:---|:---|
-| 1 | SSE 流式输出 | ✅ 已完成 |
-| 2 | 多轮对话 | ✅ 已完成 |
-| 3 | Prompt 动态化 | ✅ 已完成 |
-| 4 | Function Calling | ✅ 已完成 |
-| 5 | 地图交互闭环 | ✅ 已完成 |
-| 6 | 建议质量反馈 | ⬜ 未开始 |
-| 7 | RAG（检索增强生成） | ⬜ 未开始 |
-| 8 | 多 Agent | ⬜ 未开始 |
+| 1 | SSE 流式输出 | ✅ |
+| 2 | 多轮对话 | ✅ |
+| 3 | Prompt 动态化 | ✅ |
+| 4 | Function Calling | ✅ |
+| 5 | 地图交互闭环 | ✅ |
+| 6 | 建议质量反馈 | ✅ |
+| 7 | RAG（检索增强生成） | ✅ |
+| 8 | Expert Panel（多专家） | ✅ |
 
 ---
 
