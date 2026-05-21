@@ -16,7 +16,7 @@ _SEASONS_COL = {
 }
 
 
-@router.get("/models", response_model=AnalysisResponse)
+@router.get("/models", response_model=AnalysisResponse, summary="Get LR/GWR/MGWR model comparison results")
 def get_analysis(db: Session = Depends(get_db)):
     """空间分析：模型对比（LR 实时计算，GWR/MGWR 从 model_results 或文献估计）"""
     # Try cache first (TTL: 5 min)

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api", tags=["Sampling Points"])
 
 # ── 读取 ────────────────────────────────────────────────
 
-@router.get("/points", response_model=SamplingPointList)
+@router.get("/points", response_model=SamplingPointList, summary="List sampling points with pagination and search")
 def get_points(
     skip: int = 0,
     limit: int = 100,
@@ -53,7 +53,7 @@ def get_points(
 
 # ── 导出 ────────────────────────────────────────────────
 
-@router.get("/points/export/geojson")
+@router.get("/points/export/geojson", summary="Export sampling points as GeoJSON")
 def export_points_geojson(
     season: str = Query(None, description="Season filter: spring/summer/autumn/winter"),
     road_type: str = Query(None, description="Road type filter: rc1/rc2/rc3/rc4"),
@@ -129,7 +129,7 @@ def export_points_geojson(
     )
 
 
-@router.get("/points/export/csv")
+@router.get("/points/export/csv", summary="Export sampling points as CSV")
 def export_points_csv(
     season: str = Query(None, description="Season filter: spring/summer/autumn/winter"),
     road_type: str = Query(None, description="Road type filter: rc1/rc2/rc3/rc4"),
@@ -187,7 +187,7 @@ def export_points_csv(
     )
 
 
-@router.get("/points/{point_id}", response_model=SamplingPointResponse)
+@router.get("/points/{point_id}", response_model=SamplingPointResponse, summary="Get single sampling point detail")
 def get_point(point_id: int, db: Session = Depends(get_db)):
     point = db.query(SamplingPoint).filter(SamplingPoint.point_id == point_id).first()
     if not point:
@@ -208,7 +208,7 @@ _OPTIONAL_COLS = {
 _VALID_ROAD_TYPES = {"rc1", "rc2", "rc3", "rc4"}
 
 
-@router.post("/points/import", response_model=ImportResult)
+@router.post("/points/import", response_model=ImportResult, summary="Import sampling points from CSV")
 async def import_points(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),

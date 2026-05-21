@@ -236,7 +236,7 @@ class RouteAnalyzeRequest(BaseModel):
     season: Optional[str] = "spring"
 
 
-@router.post("/analyze")
+@router.post("/analyze", summary="Analyze GVI along a route with season")
 def analyze_route(req: RouteAnalyzeRequest, db: Session = Depends(get_db)):
     """
     分析用户绘制的路线，返回 GVI 统计。
@@ -253,7 +253,7 @@ def analyze_route(req: RouteAnalyzeRequest, db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/compare")
+@router.post("/compare", summary="Compare GVI between two routes")
 def compare_routes(req: RouteAnalyzeRequest, db: Session = Depends(get_db)):
     """
     分析用户路线 + 推荐一条「更绿」的替代路线，返回对比。

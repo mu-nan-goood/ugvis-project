@@ -116,7 +116,7 @@ def _get_weak_areas_from_db(db: Session, limit: int = 500, season: str = "winter
     return areas
 
 
-@router.get("/weak-areas", response_model=PlanningResponse)
+@router.get("/weak-areas", response_model=PlanningResponse, summary="Get weak GVI areas list with filters")
 def get_planning(
     skip: int = 0,
     limit: int = 50,
@@ -209,7 +209,7 @@ def get_planning(
     return PlanningResponse(stats=stats, weak_areas=weak_areas, total=total, skip=skip, limit=limit)
 
 
-@router.post("/advice", response_model=RenovationAdviceResponse)
+@router.post("/advice", response_model=RenovationAdviceResponse, summary="Generate AI renovation advice")
 async def generate_advice(
     request: RenovationAdviceRequest,
     db: Session = Depends(get_db),
@@ -261,7 +261,7 @@ async def generate_advice(
         raise HTTPException(status_code=500, detail="生成建议时出错，请稍后重试")
 
 
-@router.post("/stream")
+@router.post("/stream", summary="Stream AI renovation advice (SSE)")
 async def stream_advice(
     request: RenovationAdviceRequest,
     db: Session = Depends(get_db),
@@ -314,7 +314,7 @@ async def stream_advice(
     )
 
 
-@router.post("/chat")
+@router.post("/chat", summary="AI multi-turn chat (non-streaming)")
 async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
@@ -354,7 +354,7 @@ async def chat(
         raise HTTPException(status_code=500, detail="对话出错，请稍后重试")
 
 
-@router.post("/chat-stream")
+@router.post("/chat-stream", summary="AI multi-turn chat (SSE streaming)")
 async def chat_stream(
     request: ChatRequest,
     db: Session = Depends(get_db),
@@ -421,7 +421,7 @@ async def chat_stream(
     )
 
 
-@router.get("/tools")
+@router.get("/tools", summary="Run expert panel analysis (4 experts + moderator)")
 def get_tools(current_user: UserResponse = Depends(get_current_user)):
     """Get available tool schemas for Function Calling."""
     return {"tools": get_tool_schemas()}
@@ -429,7 +429,7 @@ def get_tools(current_user: UserResponse = Depends(get_current_user)):
 
 # ─── Expert Panel ──────────────────────────────────────────────────────────
 
-@router.post("/expert-panel")
+@router.post("/expert-panel", summary="Run expert panel analysis (4 experts + moderator)")
 async def expert_panel(
     request: ChatRequest,
     db: Session = Depends(get_db),
@@ -473,7 +473,7 @@ async def expert_panel(
     )
 
 
-@router.get("/expert-panel/experts")
+@router.get("/expert-panel/experts", summary="Get expert panel member profiles")
 def list_experts():
     """List available expert profiles."""
     from services.expert_panel import EXPERTS

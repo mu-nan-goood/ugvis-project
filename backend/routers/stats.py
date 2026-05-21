@@ -10,7 +10,7 @@ from services.cache import cache
 router = APIRouter(prefix="/api", tags=["Statistics"])
 
 
-@router.get("/stats", response_model=StatsResponse)
+@router.get("/stats", response_model=StatsResponse, summary="Get global GVI statistics summary")
 def get_stats(db: Session = Depends(get_db)):
     # Try cache first (TTL: 5 min)
     cached = cache.get("stats:overview")
@@ -62,7 +62,7 @@ def get_stats(db: Session = Depends(get_db)):
     return result
 
 
-@router.get("/roads", response_model=RoadSegmentList)
+@router.get("/roads", response_model=RoadSegmentList, summary="Get road segment statistics")
 def get_roads(
     skip: int = 0,
     limit: int = 100,

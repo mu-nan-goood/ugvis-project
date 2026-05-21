@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Register a new user (analyst/guest only)")
 @limiter.limit("5/minute")
 def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
     """用户注册 — 自注册仅允许 analyst/guest 角色，admin 只能由现有管理员创建。"""
@@ -68,7 +68,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
     return user
 
 
-@router.post("/admin/create-user", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/admin/create-user", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Admin creates user with any role")
 def admin_create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
@@ -92,7 +92,7 @@ def admin_create_user(
     return user
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, summary="Authenticate and get JWT tokens")
 @limiter.limit("5/minute")
 def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """用户登录，返回 Access Token 和 Refresh Token"""
@@ -115,7 +115,7 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
     return Token(access_token=access_token, refresh_token=refresh_token)
 
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh", response_model=Token, summary="Refresh access token")
 @limiter.limit("10/minute")
 def refresh_token(request: Request, token_data: TokenRefreshRequest, db: Session = Depends(get_db)):
     """刷新 Access Token"""
@@ -150,20 +150,20 @@ def refresh_token(request: Request, token_data: TokenRefreshRequest, db: Session
     return Token(access_token=access_token, refresh_token=new_refresh_token)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, summary="Logout (client-side token removal)")
 def get_me(current_user: UserResponse = Depends(get_current_user)):
     """获取当前用户信息"""
     return current_user
 
 
-@router.post("/logout")
+@router.post("/logout", summary="Change current user password")
 def logout(current_user: UserResponse = Depends(get_current_user)):
     """用户登出（客户端清除 Token 即可，服务端无需吊销）"""
     logger.info(f"用户登出: {current_user.username}")
     return {"message": "已登出"}
 
 
-@router.post("/password/change", response_model=UserResponse)
+@router.post("/password/change", response_model=UserResponse, summary="Change current user password")
 @limiter.limit("3/minute")
 def change_password(
     request: Request,

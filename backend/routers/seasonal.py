@@ -17,7 +17,7 @@ _SEASONS_MAP = {
 }
 
 
-@router.get("/analysis", response_model=SeasonalAnalysisResponse)
+@router.get("/analysis", response_model=SeasonalAnalysisResponse, summary="Get seasonal GVI/NDVI analysis by road type")
 def get_seasonal_analysis(db: Session = Depends(get_db)):
     """季节变异分析：箱线图、统计摘要、变异系数、稳定性分区"""
     # Try cache first (TTL: 10 min — seasonal data rarely changes)

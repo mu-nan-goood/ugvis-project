@@ -56,7 +56,7 @@ def _index_advice_async(
         logger.warning(f"RAG indexing background task failed: {e}")
 
 
-@router.post("", response_model=AdviceFeedbackResponse)
+@router.post("", response_model=AdviceFeedbackResponse, summary="Submit advice feedback with vote and comment")
 def submit_feedback(
     feedback: AdviceFeedbackCreate,
     db: Session = Depends(get_db),
@@ -124,7 +124,7 @@ def submit_feedback(
     return db_feedback
 
 
-@router.get("", response_model=List[AdviceFeedbackResponse])
+@router.get("", response_model=List[AdviceFeedbackResponse], summary="List feedback records")
 def list_feedback(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -144,7 +144,7 @@ def list_feedback(
     )
 
 
-@router.get("/stats", response_model=AdviceFeedbackStats)
+@router.get("/stats", response_model=AdviceFeedbackStats, summary="Get feedback statistics")
 def feedback_stats(db: Session = Depends(get_db)):
     """获取反馈统计：总数、好评数、差评数、好评率。"""
     total = db.query(AdviceFeedback).count()
@@ -159,7 +159,7 @@ def feedback_stats(db: Session = Depends(get_db)):
     )
 
 
-@router.get("/knowledge-base/stats")
+@router.get("/knowledge-base/stats", summary="Get RAG knowledge base statistics")
 def knowledge_base_stats():
     """查看 RAG 知识库状态（ChromaDB）。"""
     try:
@@ -170,7 +170,7 @@ def knowledge_base_stats():
         return {"status": "error", "error": str(e), "total_records": 0}
 
 
-@router.post("/knowledge-base/reset")
+@router.post("/knowledge-base/reset", summary="Reset RAG knowledge base (admin only)")
 def reset_knowledge_base(current_user: UserResponse = Depends(require_role(["admin"]))):
     """重置 RAG 知识库（删除所有历史建议索引）。仅管理员可操作。"""
     try:
@@ -182,7 +182,7 @@ def reset_knowledge_base(current_user: UserResponse = Depends(require_role(["adm
         return {"ok": False, "error": str(e)}
 
 
-@router.delete("/{feedback_id}")
+@router.delete("/{feedback_id}", summary="Delete a feedback entry")
 def delete_feedback(
     feedback_id: int,
     db: Session = Depends(get_db),

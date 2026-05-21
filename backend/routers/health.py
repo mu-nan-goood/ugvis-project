@@ -7,12 +7,12 @@ from sqlalchemy import text
 router = APIRouter(tags=["Health"])
 
 
-@router.get("/", response_model=HealthResponse)
+@router.get("/", response_model=HealthResponse, summary="Root health check")
 def root():
     return {"message": "UGVIS API is running", "version": "0.2.0"}
 
 
-@router.get("/api/health")
+@router.get("/api/health", summary="API health check with database status")
 def health_check():
     """健康检查 + 依赖状态。"""
     db_ok = True

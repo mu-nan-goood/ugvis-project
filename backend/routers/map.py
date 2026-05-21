@@ -8,7 +8,7 @@ from utils import get_gvi_ndvi_cols
 router = APIRouter(prefix="/api", tags=["Map"])
 
 
-@router.get("/map/points")
+@router.get("/map/points", summary="Get sampling points for map rendering")
 def get_map_points(
     season: str = Query("spring", description="季节: spring/summer/autumn/winter"),
     limit: int = Query(5000, ge=1, le=20000, description="返回点数上限"),
@@ -53,7 +53,7 @@ def get_map_points(
     }
 
 
-@router.get("/map/stats")
+@router.get("/map/stats", summary="Get map layer statistics")
 def get_map_stats(
     season: str = Query("spring"),
     db: Session = Depends(get_db),
