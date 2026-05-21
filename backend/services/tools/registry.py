@@ -63,7 +63,7 @@ def execute_get_weak_areas(db, season: str = None, priority: str = None,
         else:
             col = SamplingPoint.gvi_winter
 
-        query = query.filter(col < 80.0)
+        query = query.filter(col < 10.0)  # B19 fix: filter at DB level (was < 80.0 + Python filter < 10)
         if min_gvi is not None:
             query = query.filter(col >= min_gvi)
         query = query.filter(col.isnot(None))
@@ -74,8 +74,7 @@ def execute_get_weak_areas(db, season: str = None, priority: str = None,
             gvi_val = getattr(p, f"gvi_{season}" if season else "gvi_winter")
             if gvi_val is None:
                 continue
-            if gvi_val >= 10.0:
-                continue
+            # DB already filters gvi < 10.0, no need to re-check here
 
             if gvi_val < 5.0:
                 p_priority = "high"

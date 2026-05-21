@@ -1,12 +1,13 @@
 """backend/services/auth.py - JWT 认证与密码哈希服务"""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -36,7 +37,7 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """创建 JWT Access Token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes))
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
@@ -44,7 +45,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """创建 JWT Refresh Token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_token_expire_days)
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
@@ -94,9 +95,19 @@ def create_user(db: Session, username: str, email: str, password: str, role: str
         role=role,
         is_active=1,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        # 竞态窗口：两个请求同时通过唯一性检查后同时插入
+        # 根据 username/email 的 unique 约束判断重复字段
+        if db.query(User).filter(User.username == username).first():
+            raise HTTPException(status_code=400, detail="用户名已存在")
+        if db.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=400, detail="邮箱已被注册")
+        raise HTTPException(status_code=400, detail="用户创建失败，请重试")
     return user
 
 

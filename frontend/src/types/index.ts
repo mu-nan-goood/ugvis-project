@@ -2,14 +2,14 @@
 
 // ── 用户认证 ────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'analyst' | 'user'
+export type UserRole = 'admin' | 'analyst' | 'guest'
 
 export interface User {
   id: number
   username: string
   email: string
   role: UserRole
-  is_active: boolean
+  is_active: number  // backend returns int (0/1)
   created_at: string
 }
 

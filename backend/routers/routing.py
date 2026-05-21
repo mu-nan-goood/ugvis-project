@@ -1,6 +1,6 @@
 """backend/routers/routing.py — 绿波路线规划 API"""
 import math
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
@@ -31,7 +31,7 @@ def route_length(coords: list) -> float:
     return total
 
 
-def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limit_per_segment: int = 30) -> dict:
+def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limit_per_segment: int = 30, season: str = "spring") -> dict:
     """
     沿路线采样 GVI 点。
     对每个路段的中点进行缓冲区查询，取最近的点。
@@ -49,17 +49,24 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
         mid_lat = (lat1 + lat2) / 2
         mid_lng = (lng1 + lng2) / 2
 
-        # 在中点附近找采样点（简化：用近似度数范围代替真实缓冲区）
-        deg_buffer = buffer_m / 111320.0
-        nearby = (
+        # 在中点附近找采样点：矩形粗筛 + Haversine 精确过滤
+        # 粗筛：扩大 1.5 倍范围确保不遗漏（经度方向 1° ≈ 111320*cos(lat) m）
+        cos_lat = math.cos(math.radians(mid_lat))
+        deg_lat = buffer_m * 1.5 / 111320.0
+        deg_lng = buffer_m * 1.5 / (111320.0 * cos_lat) if cos_lat > 0.01 else deg_lat
+        rough = (
             db.query(SamplingPoint)
             .filter(
-                SamplingPoint.lat.between(mid_lat - deg_buffer, mid_lat + deg_buffer),
-                SamplingPoint.lng.between(mid_lng - deg_buffer, mid_lng + deg_buffer),
+                SamplingPoint.lat.between(mid_lat - deg_lat, mid_lat + deg_lat),
+                SamplingPoint.lng.between(mid_lng - deg_lng, mid_lng + deg_lng),
             )
-            .limit(limit_per_segment)
             .all()
         )
+        # 精确过滤：Haversine 球面距离 ≤ buffer_m
+        nearby = [p for p in rough if haversine(mid_lat, mid_lng, p.lat, p.lng) <= buffer_m]
+        # 限制每段返回数量（按距离排序取最近的）
+        nearby.sort(key=lambda p: haversine(mid_lat, mid_lng, p.lat, p.lng))
+        nearby = nearby[:limit_per_segment]
 
         if nearby:
             # 计算该路段四季平均 GVI
@@ -94,9 +101,9 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
     def avg(vals):
         return round(sum(vals) / len(vals), 2) if vals else None
 
-    # 找到最佳/最差路段
-    best_seg = max(segments, key=lambda s: (s["avg_gvi"]["spring"] or 0)) if segments else None
-    worst_seg = min(segments, key=lambda s: (s["avg_gvi"]["spring"] or 999)) if segments else None
+    # 找到最佳/最差路段（基于当前季节）
+    best_seg = max(segments, key=lambda s: (s["avg_gvi"].get(season, 0) or 0)) if segments else None
+    worst_seg = min(segments, key=lambda s: (s["avg_gvi"].get(season, 999) or 999)) if segments else None
 
     return {
         "total_length_m": round(route_length(coords), 1),
@@ -123,8 +130,8 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
 def _season_verdict(spring, summer, autumn, winter):
     """生成一句话季节评价"""
     vals = {
-        "春季": spring, "夏季": summer,
-        "秋季": autumn, "冬季": winter,
+        "spring": spring, "summer": summer,
+        "autumn": autumn, "winter": winter,
     }
     # 过滤掉 None 值
     valid_vals = {k: v for k, v in vals.items() if v is not None}
@@ -138,7 +145,7 @@ def _season_verdict(spring, summer, autumn, winter):
     }
 
 
-def generate_green_alternative(coords: list, db: Session) -> list:
+def generate_green_alternative(coords: list, db: Session, season: str = "spring", gvi_threshold: float = 30) -> list:
     """
     基于采样点 GVI 值，生成一条「更绿」的替代路径。
     策略：在起点到终点的范围内，寻找 GVI 高的区域作为绕行点。
@@ -164,15 +171,16 @@ def generate_green_alternative(coords: list, db: Session) -> list:
     min_lng -= pad_lng
     max_lng += pad_lng
 
-    # 找高GVI点（春季 GVI > 30%）
+    # 找高GVI点（当前季节 GVI > 阈值）
+    gvi_col = getattr(SamplingPoint, f"gvi_{season}", SamplingPoint.gvi_spring)
     high_gvi_points = (
         db.query(SamplingPoint)
         .filter(
             SamplingPoint.lat.between(min_lat, max_lat),
             SamplingPoint.lng.between(min_lng, max_lng),
-            SamplingPoint.gvi_spring > 30,
+            gvi_col > gvi_threshold,
         )
-        .order_by(SamplingPoint.gvi_spring.desc())
+        .order_by(gvi_col.desc())
         .limit(8)
         .all()
     )
@@ -184,7 +192,7 @@ def generate_green_alternative(coords: list, db: Session) -> list:
     # 策略：选一个靠近起点的，一个靠近终点的，一个中间的
     waypoints = []
     for p in high_gvi_points:
-        waypoints.append({"lat": p.lat, "lng": p.lng, "gvi": p.gvi_spring})
+        waypoints.append({"lat": p.lat, "lng": p.lng, "gvi": getattr(p, f"gvi_{season}", None)})
 
     # 按到起点的距离排序
     waypoints.sort(key=lambda p: haversine(start["lat"], start["lng"], p["lat"], p["lng"]))
@@ -225,6 +233,7 @@ class Coordinate(BaseModel):
 
 class RouteAnalyzeRequest(BaseModel):
     coords: List[Coordinate]
+    season: Optional[str] = "spring"
 
 
 @router.post("/analyze")
@@ -234,9 +243,13 @@ def analyze_route(req: RouteAnalyzeRequest, db: Session = Depends(get_db)):
     """
     if len(req.coords) < 2:
         raise HTTPException(400, "至少需要 2 个点")
+    # R8 fix: validate season parameter
+    season = req.season or "spring"
+    if season not in ("spring", "summer", "autumn", "winter"):
+        raise HTTPException(400, f"Invalid season: {season}. Must be one of: spring, summer, autumn, winter")
 
     coords_dict = [{"lat": c.lat, "lng": c.lng} for c in req.coords]
-    result = sample_gvi_along_route(coords_dict, db)
+    result = sample_gvi_along_route(coords_dict, db, season=season)
     return result
 
 
@@ -245,22 +258,26 @@ def compare_routes(req: RouteAnalyzeRequest, db: Session = Depends(get_db)):
     """
     分析用户路线 + 推荐一条「更绿」的替代路线，返回对比。
     """
+    season = req.season or "spring"
     if len(req.coords) < 2:
         raise HTTPException(400, "至少需要 2 个点")
+
+    if season not in ("spring", "summer", "autumn", "winter"):
+        raise HTTPException(400, f"Invalid season: {season}")
 
     coords_dict = [{"lat": c.lat, "lng": c.lng} for c in req.coords]
 
     # 用户路线
-    user_route = sample_gvi_along_route(coords_dict, db)
+    user_route = sample_gvi_along_route(coords_dict, db, season=season)
 
     # 生成更绿路线
-    green_coords = generate_green_alternative(coords_dict, db)
-    green_route = sample_gvi_along_route(green_coords, db)
+    green_coords = generate_green_alternative(coords_dict, db, season=season)
+    green_route = sample_gvi_along_route(green_coords, db, season=season)
 
-    # 计算提升百分比
-    user_spring = user_route["overall_gvi"]["spring"] or 0
-    green_spring = green_route["overall_gvi"]["spring"] or 0
-    improvement = round(((green_spring - user_spring) / user_spring * 100) if user_spring > 0 else 0, 1)
+    # 计算提升百分比（使用指定季节的GVI）
+    user_season_gvi = user_route["overall_gvi"].get(season, 0) or 0
+    green_season_gvi = green_route["overall_gvi"].get(season, 0) or 0
+    improvement = round(((green_season_gvi - user_season_gvi) / user_season_gvi * 100) if user_season_gvi > 0 else 0, 1)
 
     return {
         "user_route": {

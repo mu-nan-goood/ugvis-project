@@ -3,48 +3,16 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.heat'
 import type { MapPoint, Season, RouteCoord } from '../types'
+import { wgs84ToGcj02 } from '../utils/coordTransform'
+
+/** Escape HTML special chars to prevent XSS in Leaflet bindPopup template literals */
+function esc(s: string | number | null | undefined): string {
+  if (s == null) return 'N/A'
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
 
 export type DisplayMode = 'points' | 'heatmap'
 export type BaseMap = 'osm' | 'gaode' | 'gaode-satellite'
-
-// ─── WGS-84 → GCJ-02 坐标转换 ─────────────────────────
-// 高德地图使用 GCJ-02 坐标系，需将 WGS-84 数据偏移
-const PI = Math.PI
-const A = 6378245.0 // 长半轴
-const EE = 0.006693421622965943 // 扁率
-
-function outOfChina(lat: number, lng: number): boolean {
-  return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271
-}
-
-function transformLat(x: number, y: number): number {
-  let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x))
-  ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0
-  ret += ((20.0 * Math.sin(y * PI) + 40.0 * Math.sin((y / 3.0) * PI)) * 2.0) / 3.0
-  ret += ((160.0 * Math.sin((y / 12.0) * PI) + 320 * Math.sin((y * PI) / 30.0)) * 2.0) / 3.0
-  return ret
-}
-
-function transformLng(x: number, y: number): number {
-  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x))
-  ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0
-  ret += ((20.0 * Math.sin(x * PI) + 40.0 * Math.sin((x / 3.0) * PI)) * 2.0) / 3.0
-  ret += ((150.0 * Math.sin((x / 12.0) * PI) + 300.0 * Math.sin((x / 30.0) * PI)) * 2.0) / 3.0
-  return ret
-}
-
-function wgs84ToGcj02(lat: number, lng: number): [number, number] {
-  if (outOfChina(lat, lng)) return [lat, lng]
-  let dLat = transformLat(lng - 105.0, lat - 35.0)
-  let dLng = transformLng(lng - 105.0, lat - 35.0)
-  const radLat = (lat / 180.0) * PI
-  let magic = Math.sin(radLat)
-  magic = 1 - EE * magic * magic
-  const sqrtMagic = Math.sqrt(magic)
-  dLat = (dLat * 180.0) / (((A * (1 - EE)) / (magic * sqrtMagic)) * PI)
-  dLng = (dLng * 180.0) / ((A / sqrtMagic) * Math.cos(radLat) * PI)
-  return [lat + dLat, lng + dLng]
-}
 
 interface GVIMapProps {
   points: MapPoint[]
@@ -103,6 +71,12 @@ export default function GVIMap({
   const planningLayer = useRef<L.LayerGroup | null>(null)
   const extraRouteLayer = useRef<L.LayerGroup | null>(null)
 
+  // Refs for values used inside the map-init effect to avoid re-creating the map
+  const planningModeRef = useRef(planningMode)
+  planningModeRef.current = planningMode
+  const onMapClickRef = useRef(onMapClick)
+  onMapClickRef.current = onMapClick
+
   const pointById = useRef<Map<number, MapPoint>>(new Map())
   useEffect(() => {
     pointById.current = new Map(points.map((p) => [p.id, p]))
@@ -128,7 +102,9 @@ export default function GVIMap({
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return
 
-    leafletMap.current = L.map(mapRef.current).setView([32.05, 118.78], 11)
+    leafletMap.current = L.map(mapRef.current, {
+      preferCanvas: true,  // SVG→Canvas: 200K+ circleMarker without lag
+    }).setView([32.05, 118.78], 11)
 
     // ── 底图瓦片 ──
     const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -170,10 +146,11 @@ export default function GVIMap({
     planningLayer.current = L.layerGroup().addTo(leafletMap.current)
     extraRouteLayer.current = L.layerGroup().addTo(leafletMap.current)
 
-    // Map click handler for planning mode
+    // Map click handler for planning mode — reads from refs so the effect
+    // doesn't need planningMode/onMapClick in its dependency array (F3 fix)
     leafletMap.current.on('click', (e: L.LeafletMouseEvent) => {
-      if (planningMode && onMapClick) {
-        onMapClick(e.latlng.lat, e.latlng.lng)
+      if (planningModeRef.current && onMapClickRef.current) {
+        onMapClickRef.current(e.latlng.lat, e.latlng.lng)
       }
     })
 
@@ -198,8 +175,9 @@ export default function GVIMap({
         leafletMap.current = null
       }
     }
+    // Only baseMap triggers map rebuild — planningMode/onMapClick are read via refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planningMode, onMapClick])
+  }, [baseMap])
 
   // ─── Heatmap layer ──────────────────────────────────
   const renderHeatmap = useCallback(() => {
@@ -274,6 +252,9 @@ export default function GVIMap({
     if (!markersLayer.current || !leafletMap.current) return
     markersLayer.current.clearLayers()
 
+    const map = leafletMap.current
+    const isZoomedIn = map.getZoom() >= 13  // Only bind popups at zoom 13+
+
     points.forEach((point) => {
       if (highlightSet.current.has(point.id)) return
       const gvi = point.gvi
@@ -292,17 +273,20 @@ export default function GVIMap({
         fillOpacity: 0.6,
       })
 
-      circle.bindPopup(`
-        <div style="min-width:180px;font-size:13px">
-          <p><strong>采样点 ${point.id}</strong></p>
-          <p>GVI: <span style="color:${color};font-weight:600">${gvi.toFixed(2)}%</span></p>
-          <p>NDVI: ${point.ndvi != null ? point.ndvi.toFixed(2) : 'N/A'}</p>
-          <p>道路: ${point.road_type || 'N/A'}</p>
-          <hr style="margin:4px 0;border-color:#eee">
-          <p style="font-size:11px;color:#666">坐标: ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}</p>
-          <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:4px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
-        </div>
-      `)
+      // Bind popup only when zoomed in to reduce memory for 200K+ points
+      if (isZoomedIn) {
+        circle.bindPopup(`
+          <div style="min-width:180px;font-size:13px">
+            <p><strong>采样点 ${esc(point.id)}</strong></p>
+            <p>GVI: <span style="color:${color};font-weight:600">${gvi.toFixed(2)}%</span></p>
+            <p>NDVI: ${point.ndvi != null ? point.ndvi.toFixed(2) : 'N/A'}</p>
+            <p>道路: ${esc(point.road_type)}</p>
+            <hr style="margin:4px 0;border-color:#eee">
+            <p style="font-size:11px;color:#666">坐标: ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}</p>
+            <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:4px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
+          </div>
+        `)
+      }
 
       if (onPointClick) {
         circle.on('click', () => onPointClick(point))
@@ -342,9 +326,9 @@ export default function GVIMap({
       const marker = L.marker([mLat, mLng], { icon: pulseIcon })
       marker.bindPopup(`
         <div style="min-width:180px;font-size:13px">
-          <p><strong>📌 薄弱点 ${point.id}</strong></p>
+          <p><strong>📌 薄弱点 ${esc(point.id)}</strong></p>
           <p>GVI: <span style="color:#dc2626;font-weight:600">${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</span></p>
-          <p>道路: ${point.road_type || 'N/A'}</p>
+          <p>道路: ${esc(point.road_type)}</p>
           <hr style="margin:4px 0;border-color:#eee">
           <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.id}}}))">🤖 询问AI关于此点</p>
           <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:2px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>

@@ -96,7 +96,7 @@ export default function MapView() {
   // ── AI 交互回调 ─────────────────────────────────────
   useEffect(() => {
     const handler = (e: CustomEvent) => {
-      window.parent.postMessage({ type: 'ask-ai', pointId: e.detail?.pointId }, '*')
+      window.parent.postMessage({ type: 'ask-ai', pointId: e.detail?.pointId }, window.location.origin)
     }
     window.addEventListener('ugvis-ask-ai', handler as EventListener)
     return () => window.removeEventListener('ugvis-ask-ai', handler as EventListener)
@@ -293,6 +293,7 @@ export default function MapView() {
           <div>
             <RouteAnalysisPanel
               waypoints={waypoints}
+              season={season}
               onAddWaypoint={(lat, lng) => handleMapClick(lat, lng)}
               onRemoveWaypoint={handleRemoveWaypoint}
               onClear={handleClearWaypoints}

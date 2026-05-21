@@ -1,6 +1,153 @@
-import { useState, useEffect } from 'react'
-import type { RouteCoord, RouteAnalysis } from '../types'
+import { useState, useEffect, useRef } from 'react'
+import type { RouteCoord, RouteAnalysis, SegmentGVI, Season } from '../types'
+import { SEASON_LABELS } from '../types'
 import { analyzeRoute, compareRoutes } from '../utils/api'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([
+  LineChart,
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  CanvasRenderer,
+])
+
+/** GVI 沿路线剖面图 */
+function RouteProfileChart({ segments, overallGvi }: {
+  segments: SegmentGVI[]
+  overallGvi: RouteAnalysis['overall_gvi']
+}) {
+  const chartRef = useRef<HTMLDivElement>(null)
+  const instanceRef = useRef<echarts.ECharts | null>(null)
+
+  useEffect(() => {
+    if (!chartRef.current) return
+    instanceRef.current = echarts.init(chartRef.current)
+    const handleResize = () => instanceRef.current?.resize()
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      instanceRef.current?.dispose()
+      instanceRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!instanceRef.current || segments.length === 0) return
+
+    // X轴：累积距离(km)
+    let cumulativeDist = 0
+    const xData: number[] = [0]
+    segments.forEach((seg) => {
+      cumulativeDist += seg.length_m
+      xData.push(Math.round(cumulativeDist) / 1000)
+    })
+
+    const seasons = [
+      { key: 'spring' as const, label: '春季', color: '#4ade80' },
+      { key: 'summer' as const, label: '夏季', color: '#10b981' },
+      { key: 'autumn' as const, label: '秋季', color: '#f59e0b' },
+      { key: 'winter' as const, label: '冬季', color: '#60a5fa' },
+    ]
+
+    const series = seasons.map(({ key, label, color }) => {
+      // 每个segment的GVI作为该段终点的值，起点用段首值
+      const data: (number | null)[] = []
+      segments.forEach((seg) => {
+        const val = seg.avg_gvi[key]
+        // 每段一个数据点
+        if (data.length === 0) data.push(val)
+        data.push(val)
+      })
+      return {
+        name: label,
+        type: 'line' as const,
+        data,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 4,
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        markLine:
+          key === 'spring'
+            ? {
+                silent: true,
+                symbol: 'none' as const,
+                lineStyle: { type: 'dashed' as const, color: '#ef4444', width: 1 },
+                data: [
+                  {
+                    yAxis: overallGvi.spring,
+                    label: {
+                      formatter: `均值 ${overallGvi.spring}%`,
+                      position: 'insideEndTop' as const,
+                      fontSize: 10,
+                      color: '#ef4444',
+                    },
+                  },
+                ],
+              }
+            : undefined,
+      }
+    })
+
+    instanceRef.current.setOption(
+      {
+        title: {
+          text: '路线 GVI 剖面',
+          left: 'center',
+          textStyle: { fontSize: 13, fontWeight: 600 },
+        },
+        tooltip: {
+          trigger: 'axis',
+          formatter(params: unknown) {
+            const ps = params as { seriesName: string; value: number | null; axisValueLabel: string }[]
+            let tip = `<b>${ps[0]?.axisValueLabel ?? ''} km</b><br/>`
+            ps.forEach((p) => {
+              if (p.value != null) {
+                tip += `${p.seriesName}: <b>${p.value}%</b><br/>`
+              }
+            })
+            return tip
+          },
+        },
+        legend: {
+          bottom: 0,
+          textStyle: { fontSize: 10 },
+        },
+        grid: { top: 35, right: 15, bottom: 30, left: 45 },
+        xAxis: {
+          type: 'category',
+          data: xData.map((d) => d.toFixed(2)),
+          name: '距离 (km)',
+          nameTextStyle: { fontSize: 10 },
+          axisLabel: { fontSize: 10 },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'GVI (%)',
+          nameTextStyle: { fontSize: 10 },
+          axisLabel: { fontSize: 10, formatter: '{value}%' },
+          min: (value: { min: number }) => Math.max(0, Math.floor(value.min) - 2),
+        },
+        series,
+      },
+      { notMerge: true },
+    )
+  }, [segments, overallGvi])
+
+  return <div ref={chartRef} className="w-full" style={{ height: 220 }} />
+}
 
 interface Waypoint extends RouteCoord {
   id: number
@@ -9,6 +156,8 @@ interface Waypoint extends RouteCoord {
 interface Props {
   /** 当前路线上的路点 */
   waypoints: Waypoint[]
+  /** 当前选择的季节 */
+  season?: string
   /** 添加路点（已废弃，暂不使用） */
   onAddWaypoint?: (lat: number, lng: number) => void
   /** 移除路点 */
@@ -23,6 +172,7 @@ interface Props {
 
 export default function RouteAnalysisPanel({
   waypoints,
+  season,
   onRemoveWaypoint,
   onClear,
   onRouteChange,
@@ -54,8 +204,8 @@ export default function RouteAnalysisPanel({
 
       // Both calls in parallel
       const [analysis, comparison] = await Promise.all([
-        analyzeRoute(coords),
-        compareRoutes(coords),
+        analyzeRoute(coords, season),
+        compareRoutes(coords, season),
       ])
 
       setResult(analysis)
@@ -198,12 +348,17 @@ export default function RouteAnalysisPanel({
           {/* 季节评价 */}
           {result.season_verdict.best_season && (
             <div className="text-sm text-center bg-gray-50 rounded-lg py-2">
-              🌱 最佳季节: <strong>{result.season_verdict.best_season}</strong>
-              {' · '}最差季节: <strong>{result.season_verdict.worst_season}</strong>
+              🌱 最佳季节: <strong>{SEASON_LABELS[result.season_verdict.best_season as Season] ?? result.season_verdict.best_season}</strong>
+              {' · '}最差季节: <strong>{SEASON_LABELS[result.season_verdict.worst_season as Season] ?? result.season_verdict.worst_season}</strong>
               {result.season_verdict.gap != null && (
                 <> · 季节差距: <strong>{result.season_verdict.gap}%</strong></>
               )}
             </div>
+          )}
+
+          {/* GVI 剖面图 */}
+          {result.segments.length > 0 && (
+            <RouteProfileChart segments={result.segments} overallGvi={result.overall_gvi} />
           )}
 
           {/* 与绿化路线对比 */}

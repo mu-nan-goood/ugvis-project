@@ -34,8 +34,8 @@ export default function Auth() {
         setError('两次密码不一致')
         return
       }
-      if (password.length < 6) {
-        setError('密码至少6位')
+      if (password.length < 8) {
+        setError('密码至少8位，需包含大小写字母、数字和特殊字符')
         return
       }
     }

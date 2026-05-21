@@ -2,7 +2,7 @@
 import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -16,6 +16,9 @@ from schemas import (
     UserCreate,
     UserResponse,
 )
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
 from services.auth import (
     authenticate_user,
     create_access_token,
@@ -26,16 +29,20 @@ from services.auth import (
     get_password_hash,
     get_user_by_email,
     get_user_by_username,
+    require_role,
     verify_password,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """用户注册"""
+@limiter.limit("5/minute")
+def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
+    """用户注册 — 自注册仅允许 analyst/guest 角色，admin 只能由现有管理员创建。"""
     # 检查用户名是否已存在
     if get_user_by_username(db, user_data.username):
         raise HTTPException(
@@ -48,21 +55,46 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="邮箱已被注册",
         )
-    # 验证角色
+    # 自注册仅允许 analyst/guest，禁止选择 admin
+    allowed_self_roles = ["analyst", "guest"]
+    if user_data.role not in allowed_self_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"自注册仅允许角色: {allowed_self_roles}，admin 需由管理员创建",
+        )
+
+    user = create_user(db, user_data.username, user_data.email, user_data.password, user_data.role)
+    logger.info(f"新用户注册: {user.username} ({user.role})")
+    return user
+
+
+@router.post("/admin/create-user", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def admin_create_user(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(require_role(["admin"])),
+):
+    """管理员创建用户 — 允许指定任意角色（含 admin）。"""
     valid_roles = ["admin", "analyst", "guest"]
     if user_data.role not in valid_roles:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"无效的角色，可选: {valid_roles}",
         )
-    
+
+    if get_user_by_username(db, user_data.username):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
+    if get_user_by_email(db, user_data.email):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱已被注册")
+
     user = create_user(db, user_data.username, user_data.email, user_data.password, user_data.role)
-    logger.info(f"新用户注册: {user.username} ({user.role})")
+    logger.info(f"管理员 {current_user.username} 创建用户: {user.username} ({user.role})")
     return user
 
 
 @router.post("/login", response_model=Token)
-def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """用户登录，返回 Access Token 和 Refresh Token"""
     user = authenticate_user(db, login_data.username, login_data.password)
     if not user:
@@ -84,7 +116,8 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=Token)
-def refresh_token(token_data: TokenRefreshRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def refresh_token(request: Request, token_data: TokenRefreshRequest, db: Session = Depends(get_db)):
     """刷新 Access Token"""
     payload = decode_token(token_data.refresh_token)
     if payload is None:
@@ -131,7 +164,9 @@ def logout(current_user: UserResponse = Depends(get_current_user)):
 
 
 @router.post("/password/change", response_model=UserResponse)
+@limiter.limit("3/minute")
 def change_password(
+    request: Request,
     password_data: PasswordChangeRequest,
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db),

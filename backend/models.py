@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, func, Text
+from sqlalchemy import Column, Integer, Float, String, DateTime, func, Text, ForeignKey
 from database import Base
 
 class SamplingPoint(Base):
@@ -92,6 +92,8 @@ class AdviceFeedback(Base):
     area_ids = Column(String(200), nullable=True)  # 逗号分隔的 point_id 列表
     # 季节
     season = Column(String(20), nullable=True)
+    # 提交用户（外键关联 users 表）
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     # 创建时间
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

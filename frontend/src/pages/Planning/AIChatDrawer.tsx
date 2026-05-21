@@ -34,12 +34,13 @@ export default function AIChatDrawer({
   const [inputMessage, setInputMessage] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [streamingText, setStreamingText] = useState('')
-  // Track expert opinions for UI state (used by moderator stream)
-  const [, setExpertOpinions] = useState<Record<string, { name: string; emoji: string; opinion: string }>>({})
   const [moderatorText, setModeratorText] = useState('')
   const [panelActive, setPanelActive] = useState(false)
   const [expandedExperts, setExpandedExperts] = useState<Record<string, boolean>>({})
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // F5 fix: use ref to track active request ID, discard stale SSE updates
+  const requestIdRef = useRef(0)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -48,6 +49,7 @@ export default function AIChatDrawer({
   // Listen for AI ask events from MapView
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
       if (e.data?.type === 'ask-ai') {
         const context = e.data.context || ''
         if (context) setInputMessage(context)
@@ -66,20 +68,24 @@ export default function AIChatDrawer({
     setInputMessage('')
     setChatLoading(true)
     setStreamingText('')
-    setExpertOpinions({})
     setModeratorText('')
-    setPanelActive(true)
+    setPanelActive(false)
+
+    // F5 fix: increment request ID so stale SSE events are discarded
+    const thisRequestId = ++requestIdRef.current
 
     if (chatMode === 'expert') {
-      await handleExpertPanel(userMsg)
+      await handleExpertPanel(userMsg, thisRequestId)
     } else {
-      await handleNormalChat(userMsg)
+      await handleNormalChat(userMsg, thisRequestId)
     }
   }
 
-  async function handleExpertPanel(userMsg: ChatMessage) {
+  async function handleExpertPanel(userMsg: ChatMessage, requestId: number) {
     let modText = ''
     const currentMessages = [...messages, userMsg]
+    // B20 fix: track streaming expert message indices for in-place updates
+    const streamingExpertIdx: Record<string, number> = {}
     try {
       const history = currentMessages.filter((m) => m.role !== 'system')
       for await (const event of streamExpertPanel({
@@ -87,22 +93,59 @@ export default function AIChatDrawer({
         history,
         llm_config: llmConfig,
       })) {
+        // F5 fix: discard events from stale requests
+        if (requestIdRef.current !== requestId) return
+
         if (event.type === 'panel_start') {
+          setPanelActive(true)
           onMessagesChange([...currentMessages, {
             role: 'system',
             content: `🎯 专家小组启动，参与专家：${event.experts?.map((e: { emoji: string; name: string }) => e.emoji + e.name).join('、') || ''}`
           }])
+        } else if (event.type === 'expert_start') {
+          // B20 fix: add a streaming placeholder for this expert
+          onMessagesChange(prev => {
+            const idx = prev.length
+            streamingExpertIdx[event.expert_id] = idx
+            return [...prev, {
+              role: 'expert' as const,
+              content: `${event.emoji || ''} **${event.expert_name}**\n`,
+              expert_id: event.expert_id,
+            }]
+          })
+        } else if (event.type === 'expert_chunk') {
+          // B20 fix: update streaming expert message in-place
+          const idx = streamingExpertIdx[event.expert_id]
+          if (idx !== undefined) {
+            onMessagesChange(prev => {
+              const next = [...prev]
+              if (next[idx] && next[idx].role === 'expert') {
+                next[idx] = { ...next[idx], content: next[idx].content + event.content }
+              }
+              return next
+            })
+          }
         } else if (event.type === 'expert_done') {
-          const expertId = event.expert_id
-          setExpertOpinions((prev) => ({
-            ...prev,
-            [expertId]: { name: event.expert_name, emoji: event.emoji || '', opinion: event.opinion },
-          }))
-          onMessagesChange(prev => [...prev, {
-            role: 'expert',
-            content: `${event.emoji || ''} **${event.expert_name}**\n${event.opinion}`,
-            expert_id: expertId,
-          }])
+          // B20 fix: replace streaming message with final complete version
+          const idx = streamingExpertIdx[event.expert_id]
+          if (idx !== undefined) {
+            onMessagesChange(prev => {
+              const next = [...prev]
+              next[idx] = {
+                role: 'expert' as const,
+                content: `${event.emoji || ''} **${event.expert_name}**\n${event.opinion}`,
+                expert_id: event.expert_id,
+              }
+              return next
+            })
+          } else {
+            // Fallback: no streaming placeholder was created
+            onMessagesChange(prev => [...prev, {
+              role: 'expert' as const,
+              content: `${event.emoji || ''} **${event.expert_name}**\n${event.opinion}`,
+              expert_id: event.expert_id,
+            }])
+          }
         } else if (event.type === 'moderator_start') {
           onMessagesChange(prev => [...prev, {
             role: 'moderator_start',
@@ -131,18 +174,22 @@ export default function AIChatDrawer({
         }
       }
     } catch (err: unknown) {
+      // F5 fix: only show error if still the active request
+      if (requestIdRef.current !== requestId) return
       const errMsg = err instanceof Error ? err.message : String(err)
       onMessagesChange(prev => [...prev, {
         role: 'assistant',
         content: '专家小组请求失败：' + errMsg,
       }])
     } finally {
-      setChatLoading(false)
-      setPanelActive(false)
+      if (requestIdRef.current === requestId) {
+        setChatLoading(false)
+        setPanelActive(false)
+      }
     }
   }
 
-  async function handleNormalChat(userMsg: ChatMessage) {
+  async function handleNormalChat(userMsg: ChatMessage, requestId: number) {
     let fullText = ''
     const currentMessages = [...messages, userMsg]
     const toolCalls: Array<{ name: string; arguments: Record<string, unknown>; result?: unknown }> = []
@@ -153,39 +200,48 @@ export default function AIChatDrawer({
         history,
         llm_config: llmConfig,
       })) {
+        // F5 fix: discard events from stale requests
+        if (requestIdRef.current !== requestId) return
+
         if (event.type === 'chunk') {
           fullText += event.content
           setStreamingText(fullText)
         } else if (event.type === 'tool_call_start') {
           const toolName = TOOL_DISPLAY_NAMES[event.name] || event.name
           toolCalls.push({ name: event.name, arguments: event.arguments || {} })
-          setStreamingText((prev) => prev + `\n> 🔧 调用工具: **${toolName}**...\n`)
+          fullText += `\n> 🔧 调用工具: **${toolName}**...\n`
+          setStreamingText(fullText)
         } else if (event.type === 'tool_result') {
           const toolName = TOOL_DISPLAY_NAMES[event.name] || event.name
           const lastCall = toolCalls[toolCalls.length - 1]
           if (lastCall) lastCall.result = event.data
           if (event.success) {
-            setStreamingText((prev) => prev + `> ✅ ${toolName} 执行完成\n`)
+            fullText += `> ✅ ${toolName} 执行完成\n`
           } else {
-            setStreamingText((prev) => prev + `> ❌ ${toolName} 执行失败: ${event.error || '未知错误'}\n`)
+            fullText += `> ❌ ${toolName} 执行失败: ${event.error || '未知错误'}\n`
           }
+          setStreamingText(fullText)
         } else if (event.type === 'error') {
           onMessagesChange(prev => [...prev, { role: 'assistant', content: '错误: ' + event.content }])
           setStreamingText('')
           break
         }
       }
+      if (requestIdRef.current !== requestId) return
       if (fullText) {
         onMessagesChange(prev => [...prev, { role: 'assistant', content: fullText }])
       } else {
         onMessagesChange(prev => [...prev, { role: 'assistant', content: '（无响应）' }])
       }
     } catch (err: unknown) {
+      if (requestIdRef.current !== requestId) return
       const errMsg = err instanceof Error ? err.message : String(err)
       onMessagesChange(prev => [...prev, { role: 'assistant', content: '请求失败: ' + errMsg }])
     } finally {
-      setStreamingText('')
-      setChatLoading(false)
+      if (requestIdRef.current === requestId) {
+        setStreamingText('')
+        setChatLoading(false)
+      }
     }
   }
 

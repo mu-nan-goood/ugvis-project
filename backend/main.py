@@ -1,5 +1,10 @@
 """backend/main.py — FastAPI 应用入口，路由全部由 routers/ 模块提供"""
 import logging
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.requests import Request
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +20,8 @@ from services.auth import get_password_hash
 
 logger = logging.getLogger(__name__)
 
+# ── 速率限制 ────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 # 导入 LLM 客户端（容错）
 try:
     from backend.services.llm_client import llm_client
@@ -66,6 +73,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="UGVIS API", version="0.2.0", lifespan=lifespan)
 
+# 速率限制错误处理
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS — 来源由 config.py 配置管理，支持环境变量 CORS_ORIGINS（逗号分隔）
 # 示例: CORS_ORIGINS=http://localhost:5173,https://example.com
 _allowed_origins = settings.cors_origins
@@ -73,7 +84,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -92,4 +103,4 @@ app.include_router(auth.router)  # 认证路由
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

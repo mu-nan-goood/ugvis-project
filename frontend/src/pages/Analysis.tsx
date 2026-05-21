@@ -100,6 +100,14 @@ export default function Analysis() {
     ? localR2Points.filter((_, i) => i % Math.ceil(localR2Points.length / 2000) === 0)
     : localR2Points
 
+  // F7 fix: compute axis range from data instead of hardcoding Nanjing coordinates
+  const lngs = sampledR2.map(p => p.lng)
+  const lats = sampledR2.map(p => p.lat)
+  const lngMin = lngs.length ? Math.floor(Math.min(...lngs) * 10) / 10 : 0
+  const lngMax = lngs.length ? Math.ceil(Math.max(...lngs) * 10) / 10 : 1
+  const latMin = lats.length ? Math.floor(Math.min(...lats) * 10) / 10 : 0
+  const latMax = lats.length ? Math.ceil(Math.max(...lats) * 10) / 10 : 1
+
   const localR2Option: EChartsOption = {
     title: { text: `${MODEL_LABELS[activeModel]} — 局部R²分布`, left: 'center' },
     tooltip: {
@@ -115,8 +123,8 @@ export default function Analysis() {
       calculable: true,
       inRange: { color: ['#fee2e2', '#fbbf24', '#22c55e'] },
     },
-    xAxis: { type: 'value', min: 118.5, max: 119.1, name: '经度' },
-    yAxis: { type: 'value', min: 31.8, max: 32.2, name: '纬度' },
+    xAxis: { type: 'value', min: lngMin, max: lngMax, name: '经度' },
+    yAxis: { type: 'value', min: latMin, max: latMax, name: '纬度' },
     series: [
       {
         type: 'scatter',

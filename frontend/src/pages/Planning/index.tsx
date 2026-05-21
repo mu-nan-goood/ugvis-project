@@ -56,18 +56,16 @@ export default function Planning() {
     setLoading(true)
     try {
       const priorityParam = priority !== 'all' ? priority : undefined
+      // F6 fix: road_type filter moved to server side
+      const roadTypeParam = roadType !== 'all' ? roadType : undefined
       const data = await fetchPlanningWeakAreas({
         skip: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
         priority: priorityParam,
+        road_type: roadTypeParam,
       })
       setStats(data.stats || null)
-      const areas = data.weak_areas || []
-      if (roadType !== 'all') {
-        setWeakAreas(areas.filter((a: WeakArea) => a.road_type === roadType))
-      } else {
-        setWeakAreas(areas)
-      }
+      setWeakAreas(data.weak_areas || [])
       setTotalCount(data.total || 0)
       setError(null)
     } catch (err: unknown) {
@@ -152,15 +150,12 @@ export default function Planning() {
     }))
   }
 
-  // ── Filter weak areas (road type client-side) ───────────
-  const filteredAreas = weakAreas
-
-  const topHighlightIds = filteredAreas
+  const topHighlightIds = weakAreas
     .filter((a) => a.priority === 'high')
     .slice(0, 10)
     .map((a) => a.point_id)
 
-  const areaIds = filteredAreas.slice(0, 20).map((a) => String(a.point_id)).join(',')
+  const areaIds = weakAreas.slice(0, 20).map((a) => String(a.point_id)).join(',')
 
   // ── Loading / Error states ──────────────────────────
   if (loading) {
@@ -282,7 +277,7 @@ export default function Planning() {
 
       {/* Weak Areas Table */}
       <WeakAreasTable
-        areas={filteredAreas}
+        areas={weakAreas}
         selectedPointId={selectedPoint?.point_id}
         onOpenInMap={openInMap}
         onAskAI={askAIAboutPoint}

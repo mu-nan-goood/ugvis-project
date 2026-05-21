@@ -3,6 +3,8 @@ LLM Client - Multi-vendor API support (including streaming)
 """
 import json
 import re
+import asyncio
+import time
 import logging
 from typing import Dict, List, Optional, Any, AsyncGenerator
 import httpx
@@ -32,6 +34,10 @@ API_BASES = {
 
 
 class LLMClient:
+    # SSE chunk buffering: flush every _CHUNK_INTERVAL seconds or _CHUNK_SIZE characters
+    _CHUNK_INTERVAL = 0.05  # 50ms
+    _CHUNK_SIZE = 20         # characters
+
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
 
@@ -41,6 +47,35 @@ class LLMClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(timeout=120.0)
         return self._client
+
+    @staticmethod
+    async def _buffered_stream_chunks(
+        token_gen: AsyncGenerator[str, None],
+        interval: float = 0.05,
+        max_size: int = 20,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Buffer LLM tokens and yield batched chunk events.
+
+        Instead of one SSE event per token (1-3 chars), we accumulate tokens
+        and flush when either `interval` seconds have elapsed or `max_size`
+        characters have accumulated. This reduces 4000-char responses from
+        ~4000 SSE events to ~200, dramatically improving performance.
+        """
+        buffer = ""
+        last_flush = time.monotonic()
+
+        async for token in token_gen:
+            buffer += token
+            now = time.monotonic()
+            if len(buffer) >= max_size or (now - last_flush) >= interval:
+                yield json.dumps({"type": "chunk", "content": buffer}, ensure_ascii=False) + "\n\n"
+                buffer = ""
+                last_flush = now
+
+        # Flush remaining
+        if buffer:
+            yield json.dumps({"type": "chunk", "content": buffer}, ensure_ascii=False) + "\n\n"
 
     async def close(self):
         """关闭 httpx 客户端，释放连接池。"""
@@ -273,23 +308,30 @@ class LLMClient:
             ]
         payload = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000, "stream": True}
 
-        async with self.client.stream("POST", url, headers=headers, json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                line = line.strip()
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        yield content
-                except json.JSONDecodeError:
-                    continue
+        try:
+            async with self.client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
+        except httpx.HTTPStatusError as e:
+            # B17 fix: rebuild connection pool on server errors (same as non-streaming)
+            if e.response.status_code in (400, 502, 503):
+                logger.warning(f"Stream HTTP {e.response.status_code} detected, resetting httpx client")
+                await self.close()
+            raise
 
     async def _stream_claude(
         self,
@@ -319,26 +361,33 @@ class LLMClient:
             "stream": True,
         }
 
-        async with self.client.stream("POST", url, headers=headers, json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                line = line.strip()
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                try:
-                    event = json.loads(data_str)
-                    event_type = event.get("type", "")
-                    if event_type == "content_block_delta":
-                        delta = event.get("delta", {})
-                        if delta.get("type") == "text_delta":
-                            text = delta.get("text", "")
-                            if text:
-                                yield text
-                    elif event_type == "message_stop":
-                        break
-                except json.JSONDecodeError:
-                    continue
+        try:
+            async with self.client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    try:
+                        event = json.loads(data_str)
+                        event_type = event.get("type", "")
+                        if event_type == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                text = delta.get("text", "")
+                                if text:
+                                    yield text
+                        elif event_type == "message_stop":
+                            break
+                    except json.JSONDecodeError:
+                        continue
+        except httpx.HTTPStatusError as e:
+            # B17 fix: rebuild connection pool on server errors (same as non-streaming)
+            if e.response.status_code in (400, 502, 503):
+                logger.warning(f"Claude stream HTTP {e.response.status_code} detected, resetting httpx client")
+                await self.close()
+            raise
 
     def _parse_structured_response(self, raw_response: str) -> Dict:
         """Parse LLM response, separate Markdown and structured JSON."""
@@ -614,43 +663,37 @@ class LLMClient:
             messages.extend(tool_results_context)
             messages.append({"role": "user", "content": "(Please provide your final answer in Chinese based on the tool execution results above.)"})
 
-            # Stream final response
+            # Stream final response (buffered)
             if provider == "claude":
-                async for chunk in self._stream_claude(api_base, api_key, model, "", system_prompt, messages):
-                    yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
+                token_gen = self._stream_claude(api_base, api_key, model, "", system_prompt, messages)
             else:
-                async for chunk in self._stream_openai_compatible(api_base, api_key, model, "", system_prompt, messages):
-                    yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
+                token_gen = self._stream_openai_compatible(api_base, api_key, model, "", system_prompt, messages)
+            async for event in self._buffered_stream_chunks(token_gen, self._CHUNK_INTERVAL, self._CHUNK_SIZE):
+                yield event
 
             parsed = self._parse_structured_response(clean_text)
             structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
             yield json.dumps({"type": "done", "content": clean_text, "structured": structured}, ensure_ascii=False) + "\n\n"
 
         else:
-            # No function calls - stream the response
-            if first_response_text:
-                async def text_streamer(text):
-                    for ch in text:
-                        yield ch
+            # No function calls (or db is None) — yield the already-fetched response directly.
+            # R3 fix: If db was None but FC tags exist, clean them from output
+            text_to_yield = first_response_text or ""
+            if db is None and fc_matches:
+                # Strip <function_calls> tags since we can't execute them without db
+                text_to_yield = fc_pattern.sub("", text_to_yield).strip()
+                if not text_to_yield:
+                    text_to_yield = "（工具调用暂不可用，请稍后重试）"
 
-                async for chunk in text_streamer(first_response_text):
+            if text_to_yield:
+                # Buffer into ~20-char chunks for performance
+                for i in range(0, len(text_to_yield), self._CHUNK_SIZE):
+                    chunk = text_to_yield[i:i + self._CHUNK_SIZE]
                     yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
 
-            # Continue streaming (some LLM may have partially streamed)
-            if provider == "claude":
-                async for chunk in self._stream_claude(api_base, api_key, model, "", system_prompt, messages):
-                    yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
-            else:
-                async for chunk in self._stream_openai_compatible(api_base, api_key, model, "", system_prompt, messages):
-                    yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
-
-            parsed = self._parse_structured_response(first_response_text or "")
+            parsed = self._parse_structured_response(text_to_yield)
             structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
-            yield json.dumps({"type": "done", "content": first_response_text, "structured": structured}, ensure_ascii=False) + "\n\n"
-
-    async def close(self):
-        """Close the client."""
-        await self.client.aclose()
+            yield json.dumps({"type": "done", "content": text_to_yield, "structured": structured}, ensure_ascii=False) + "\n\n"
 
 
 # Global client instance

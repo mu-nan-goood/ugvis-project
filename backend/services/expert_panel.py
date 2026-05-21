@@ -9,6 +9,7 @@ Architecture:
 """
 import json
 import logging
+import time
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from dataclasses import dataclass
 
@@ -181,10 +182,14 @@ async def expert_panel_stream(
     yield f"data: {json.dumps({'type': 'panel_start', 'experts': [{'id': e.id, 'name': e.name, 'emoji': e.emoji} for e in selected_experts]}, ensure_ascii=False)}\n\n"
 
     expert_opinions: Dict[str, str] = {}
-    expert_tasks = {}
 
-    async def _run_expert(expert: ExpertProfile) -> str:
-        """Run a single expert, return full opinion text."""
+    # B20 fix: use asyncio.Queue for true parallel streaming
+    # Each expert pushes events to the queue; main loop consumes and yields them
+    event_queue: asyncio.Queue = asyncio.Queue()
+    active_experts = len(selected_experts)
+
+    async def _run_expert_streaming(expert: ExpertProfile) -> None:
+        """Run a single expert with streaming, push events to queue."""
         system_prompt = _build_expert_system_prompt(expert, base_prompt)
 
         try:
@@ -198,34 +203,58 @@ async def expert_panel_stream(
             messages = list(history) if history else []
             messages.append({"role": "user", "content": message})
 
-            # Use llm_client._call_api (handles api_base fallback to API_BASES)
-            full_text = await llm_client._call_api(
-                prompt="",
-                system_prompt=system_prompt,
+            # Signal expert start
+            await event_queue.put({"type": "expert_start", "expert_id": expert.id, "expert_name": expert.name, "emoji": expert.emoji})
+
+            # Stream via chat_stream for real-time output (buffered)
+            full_text = ""
+            buffer = ""
+            last_flush = time.monotonic()
+            CHUNK_INTERVAL = 0.05  # 50ms
+            CHUNK_SIZE = 20        # characters
+
+            async for chunk in llm_client.chat_stream(
+                message=message,
+                history=history,
                 llm_config=expert_config,
-                messages=messages,
-            )
-            return full_text
+                system_prompt=system_prompt,
+            ):
+                full_text += chunk
+                buffer += chunk
+                now = time.monotonic()
+                if len(buffer) >= CHUNK_SIZE or (now - last_flush) >= CHUNK_INTERVAL:
+                    await event_queue.put({"type": "expert_chunk", "expert_id": expert.id, "content": buffer})
+                    buffer = ""
+                    last_flush = now
+
+            # Flush remaining buffer
+            if buffer:
+                await event_queue.put({"type": "expert_chunk", "expert_id": expert.id, "content": buffer})
+
+            # Signal expert done
+            await event_queue.put({"type": "expert_done", "expert_id": expert.id, "expert_name": expert.name, "emoji": expert.emoji, "opinion": full_text})
 
         except Exception as e:
             logger.error(f"Expert {expert.id} failed: {e}")
-            return f"[{expert.name}暂时无法回应：{str(e)}]"
+            error_opinion = f"[{expert.name}暂时无法回应：{str(e)}]"
+            await event_queue.put({"type": "expert_done", "expert_id": expert.id, "expert_name": expert.name, "emoji": expert.emoji, "opinion": error_opinion})
 
-    # Run all experts in parallel
-    results = await asyncio.gather(
-        *[_run_expert(e) for e in selected_experts],
-        return_exceptions=True,
-    )
+    # Launch all experts in parallel
+    expert_tasks = [asyncio.create_task(_run_expert_streaming(e)) for e in selected_experts]
 
-    for expert, result in zip(selected_experts, results):
-        if isinstance(result, Exception):
-            opinion = f"[{expert.name}回应失败：{str(result)}]"
-        else:
-            opinion = result
+    # Consume events from queue until all experts are done
+    experts_done = 0
+    while experts_done < active_experts:
+        event = await event_queue.get()
 
-        expert_opinions[expert.id] = opinion
+        if event["type"] == "expert_done":
+            experts_done += 1
+            expert_opinions[event["expert_id"]] = event["opinion"]
 
-        yield f"data: {json.dumps({'type': 'expert_done', 'expert_id': expert.id, 'expert_name': expert.name, 'emoji': expert.emoji, 'opinion': opinion}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    # Ensure all tasks completed (propagate any unexpected errors)
+    await asyncio.gather(*expert_tasks, return_exceptions=True)
 
     # ── Phase 2: Moderator Synthesis ───────────────────────────────────
     yield f"data: {json.dumps({'type': 'moderator_start'}, ensure_ascii=False)}\n\n"
@@ -252,6 +281,11 @@ async def expert_panel_stream(
             mod_user_msg = "请综合专家意见给出最终方案。"
 
         moderator_text = ""
+        buffer = ""
+        last_flush = time.monotonic()
+        CHUNK_INTERVAL = 0.05  # 50ms
+        CHUNK_SIZE = 20        # characters
+
         async for chunk in llm_client.chat_stream(
             message=mod_user_msg,
             history=mod_history,
@@ -259,7 +293,16 @@ async def expert_panel_stream(
             system_prompt=MODERATOR_PROMPT,
         ):
             moderator_text += chunk
-            yield f"data: {json.dumps({'type': 'moderator_chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+            buffer += chunk
+            now = time.monotonic()
+            if len(buffer) >= CHUNK_SIZE or (now - last_flush) >= CHUNK_INTERVAL:
+                yield f"data: {json.dumps({'type': 'moderator_chunk', 'content': buffer}, ensure_ascii=False)}\n\n"
+                buffer = ""
+                last_flush = now
+
+        # Flush remaining buffer
+        if buffer:
+            yield f"data: {json.dumps({'type': 'moderator_chunk', 'content': buffer}, ensure_ascii=False)}\n\n"
 
         yield f"data: {json.dumps({'type': 'moderator_done', 'content': moderator_text}, ensure_ascii=False)}\n\n"
 

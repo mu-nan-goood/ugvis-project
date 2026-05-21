@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { submitFeedback, fetchFeedbackStats, type FeedbackStats } from '../../utils/api'
@@ -17,15 +17,15 @@ export default function AdvicePanel({ adviceText, adviceLoading, areaIds, onGene
   const [feedbackStats, setFeedbackStats] = useState<FeedbackStats | null>(null)
 
   // Load feedback stats on mount
-  useState(() => {
+  useEffect(() => {
     fetchFeedbackStats().then(setFeedbackStats).catch(() => {})
-  })
+  }, [])
 
   // Reset feedback when advice changes
-  useState(() => {
+  useEffect(() => {
     setFeedbackVote(null)
     setFeedbackComment('')
-  })
+  }, [adviceText])
 
   async function handleFeedbackVote(vote: 'up' | 'down') {
     if (feedbackSubmitting) return

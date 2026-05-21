@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Download, Upload, Filter } from 'lucide-react'
-import type { SamplingPoint } from '../../types'
+import { Download, Upload, Filter, MapPin } from 'lucide-react'
+import type { SamplingPoint, MapPoint, Season } from '../../types'
 import { ROAD_TYPE_LABELS } from '../../types'
-import { fetchPoints } from '../../utils/api'
+import { fetchPoints, fetchMapPoints } from '../../utils/api'
 import ImportModal from './ImportModal'
+import GVIMap from '../../components/GVIMap'
 
 export default function DataManagement() {
   const [points, setPoints] = useState<SamplingPoint[]>([])
@@ -12,15 +13,50 @@ export default function DataManagement() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [roadTypeFilter, setRoadTypeFilter] = useState<string>('all')
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showMap, setShowMap] = useState(false)
+  const [mapPoints, setMapPoints] = useState<MapPoint[]>([])
+  const [highlightIds, setHighlightIds] = useState<number[]>([])
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | undefined>()
+  const [season] = useState<Season>('spring')
 
   const pageSize = 50
+
+  // Debounce search term (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
 
   useEffect(() => {
     loadPoints(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roadTypeFilter])
+  }, [roadTypeFilter, debouncedSearch])
+
+  // Load map points when map is shown
+  useEffect(() => {
+    if (!showMap) return
+    fetchMapPoints({ season, limit: 50000 })
+      .then((data) => setMapPoints(data.points || []))
+      .catch(() => setMapPoints([]))
+  }, [showMap, season])
+
+  /** 点击表格行：在地图上高亮并居中 */
+  function handleRowClick(row: SamplingPoint) {
+    if (!showMap) {
+      setShowMap(true)
+      // 地图打开后再设置中心，延迟一帧等组件渲染
+      setTimeout(() => {
+        setHighlightIds([row.point_id])
+        setMapCenter({ lat: row.lat, lng: row.lng })
+      }, 300)
+    } else {
+      setHighlightIds([row.point_id])
+      setMapCenter({ lat: row.lat, lng: row.lng })
+    }
+  }
 
   async function loadPoints(skip: number) {
     setLoading(true)
@@ -29,6 +65,9 @@ export default function DataManagement() {
       const params: Record<string, string | number> = { skip, limit: pageSize }
       if (roadTypeFilter !== 'all') {
         params.road_type = roadTypeFilter
+      }
+      if (debouncedSearch) {
+        params.search = debouncedSearch
       }
       const data = await fetchPoints(params)
       setPoints(data.items || [])
@@ -47,39 +86,29 @@ export default function DataManagement() {
 
   const totalPages = Math.ceil(total / pageSize)
 
-  const filteredPoints = points.filter((d) => {
-    if (!searchTerm) return true
-    const term = searchTerm.toLowerCase()
-    return (
-      d.point_id?.toString().toLowerCase().includes(term) ||
-      d.road_type?.toLowerCase().includes(term) ||
-      ROAD_TYPE_LABELS[d.road_type || '']?.toLowerCase().includes(term)
-    )
-  })
-
-  function handleExport() {
-    const headers = [
-      'point_id', 'lat', 'lng',
-      'gvi_spring', 'gvi_summer', 'gvi_autumn', 'gvi_winter',
-      'ndvi_spring', 'ndvi_summer', 'ndvi_autumn', 'ndvi_winter',
-      'road_type'
-    ]
-    const rows = filteredPoints.map((p) => [
-      p.point_id, p.lat, p.lng,
-      p.gvi_spring, p.gvi_summer, p.gvi_autumn, p.gvi_winter,
-      p.ndvi_spring ?? '', p.ndvi_summer ?? '', p.ndvi_autumn ?? '', p.ndvi_winter ?? '',
-      p.road_type
-    ])
-    const csv = [headers, ...rows]
-      .map((r) => r.join(','))
-      .join('\n')
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
+  function handleExportCSV() {
+    // Server-side CSV export — exports ALL filtered data, not just current page
+    const params = new URLSearchParams()
+    if (roadTypeFilter !== 'all') params.set('road_type', roadTypeFilter)
+    if (searchTerm) params.set('search', searchTerm)
+    const qs = params.toString()
+    const url = `/api/points/export/csv${qs ? '?' + qs : ''}`
     const a = document.createElement('a')
     a.href = url
     a.download = `ugvis_data_${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
-    URL.revokeObjectURL(url)
+  }
+
+  function handleExportGeoJSON() {
+    // Server-side GeoJSON export (OGC RFC 7946)
+    const params = new URLSearchParams()
+    if (roadTypeFilter !== 'all') params.set('road_type', roadTypeFilter)
+    const qs = params.toString()
+    const url = `/api/points/export/geojson${qs ? '?' + qs : ''}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ugvis_points_${new Date().toISOString().slice(0, 10)}.geojson`
+    a.click()
   }
 
   return (
@@ -124,11 +153,26 @@ export default function DataManagement() {
         </button>
         <button
           className="btn-primary flex items-center gap-2"
-          title="导出当前筛选结果为CSV"
-          onClick={handleExport}
+          title="导出当前筛选的全部数据为CSV"
+          onClick={handleExportCSV}
         >
           <Download className="w-4 h-4" />
           导出CSV
+        </button>
+        <button
+          className="btn-secondary flex items-center gap-2"
+          title="导出OGC GeoJSON格式"
+          onClick={handleExportGeoJSON}
+        >
+          <Download className="w-4 h-4" />
+          导出GeoJSON
+        </button>
+        <button
+          className={`flex items-center gap-2 ${showMap ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setShowMap(!showMap)}
+        >
+          <MapPin className="w-4 h-4" />
+          {showMap ? '隐藏地图' : '显示地图'}
         </button>
       </div>
 
@@ -139,13 +183,25 @@ export default function DataManagement() {
         </div>
       )}
 
-      {/* Loading State */}
+      {/* Map + Table Layout */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600" />
         </div>
       ) : (
-        <>
+        <div className={`grid gap-6 ${showMap ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+          {/* Map Panel */}
+          {showMap && (
+            <div className="card p-2" style={{ minHeight: 400 }}>
+              <GVIMap
+                points={mapPoints}
+                season={season}
+                highlightIds={highlightIds}
+                initialCenter={mapCenter}
+                className="rounded-lg"
+              />
+            </div>
+          )}
           {/* Data Table */}
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
@@ -167,15 +223,20 @@ export default function DataManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPoints.length === 0 ? (
+                  {points.length === 0 ? (
                     <tr>
                       <td colSpan={12} className="text-center py-8 text-gray-400">
                         暂无数据
                       </td>
                     </tr>
                   ) : (
-                    filteredPoints.map((row) => (
-                      <tr key={row.id} className="border-b hover:bg-gray-50">
+                    points.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b hover:bg-gray-50 cursor-pointer"
+                        onClick={() => handleRowClick(row)}
+                        title="点击在地图上定位"
+                      >
                         <td className="py-3 px-4">{row.point_id}</td>
                         <td className="text-right py-3 px-4">{row.lat?.toFixed(6) ?? '—'}</td>
                         <td className="text-right py-3 px-4">{row.lng?.toFixed(6) ?? '—'}</td>
@@ -203,9 +264,9 @@ export default function DataManagement() {
             <div className="flex items-center justify-between p-4 border-t">
               <span className="text-sm text-gray-500">
                 第 {page * pageSize + 1} - {Math.min((page + 1) * pageSize, total)} 条 / 共 {total.toLocaleString()} 条
-                {filteredPoints.length !== points.length && (
+                {debouncedSearch && (
                   <span className="ml-2 text-primary-600">
-                    (已筛选 {filteredPoints.length} 条)
+                    (搜索结果)
                   </span>
                 )}
               </span>
@@ -244,7 +305,7 @@ export default function DataManagement() {
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Import Modal */}

@@ -17,3 +17,4 @@ scikit-learn==1.8.0
 alembic==1.18.4
 aiofiles==25.1.0
 sse-starlette==3.4.2
+slowapi==0.1.9

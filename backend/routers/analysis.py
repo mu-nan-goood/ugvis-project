@@ -42,24 +42,34 @@ def get_analysis(db: Session = Depends(get_db)):
             int_vals = [r.coef_intercept for r in rows if r.coef_intercept is not None]
 
             global_r2 = statistics.mean(r2_vals) if r2_vals else 0
+            n = len(rows)
+            k = 2 if mtype == "lr" else (3 if mtype == "gwr" else 4)
+            adj_r2_val = 1 - (1 - global_r2) * (n - 1) / max(n - k - 1, 1) if n > k + 1 else global_r2
             ndvi_range = f"{min(coef_vals):.2f}~{max(coef_vals):.2f}" if len(coef_vals) > 1 else f"{coef_vals[0]:.2f}" if coef_vals else "N/A"
             int_range = f"{min(int_vals):.2f}~{max(int_vals):.2f}" if len(int_vals) > 1 else f"{int_vals[0]:.2f}" if int_vals else "N/A"
 
             models.append(ModelMetrics(
                 model_type=mtype,
                 r2=round(global_r2, 3),
-                adj_r2=round(global_r2 * 0.99, 3),
+                adj_r2=round(adj_r2_val, 3),
                 rmse=round(5.8 + (1 - global_r2) * 15, 2),
                 aicc=round(3000 + (1 - global_r2) * 3000, 1),
                 ndvi_coef=ndvi_range,
                 intercept=int_range,
             ))
 
-            for r in rows[:3000]:
-                point = db.query(SamplingPoint).filter(SamplingPoint.id == r.point_id).first()
-                if point and r.local_r2 is not None:
+            # R14 fix: limit query to 3000 at DB level instead of loading all ~157K rows
+            local_r2_rows = (
+                db.query(ModelResult, SamplingPoint)
+                .join(SamplingPoint, SamplingPoint.id == ModelResult.point_id)
+                .filter(ModelResult.model_type == mtype, ModelResult.local_r2 != None)
+                .limit(3000)
+                .all()
+            )
+            for mr, sp in local_r2_rows:
+                if sp and mr.local_r2 is not None:
                     local_r2_points.append(
-                        LocalR2Point(lat=point.lat, lng=point.lng, local_r2=round(r.local_r2, 3))
+                        LocalR2Point(lat=sp.lat, lng=sp.lng, local_r2=round(mr.local_r2, 3))
                     )
     else:
         # 无模型数据 — 从原始数据在线计算 OLS (LR)
@@ -107,10 +117,12 @@ def get_analysis(db: Session = Depends(get_db)):
             # GWR / MGWR — 基于文献合理估计
             gwr_r2 = min(r2 * 1.3, 0.95)
             mgwr_r2 = min(r2 * 1.42, 0.95)
+            gwr_adj = 1 - (1 - gwr_r2) * (n - 1) / max(n - 4, 1)
+            mgwr_adj = 1 - (1 - mgwr_r2) * (n - 1) / max(n - 5, 1)
             models.append(ModelMetrics(
                 model_type="gwr",
                 r2=round(gwr_r2, 3),
-                adj_r2=round(gwr_r2 * 0.99, 3),
+                adj_r2=round(min(gwr_adj, gwr_r2), 3),
                 rmse=round(rmse * (1 - (gwr_r2 - r2) * 0.5), 2),
                 aicc=round(aicc * 0.85, 1),
                 ndvi_coef=f"{b*0.8:.2f}~{b*1.8:.2f}",
@@ -119,7 +131,7 @@ def get_analysis(db: Session = Depends(get_db)):
             models.append(ModelMetrics(
                 model_type="mgwr",
                 r2=round(mgwr_r2, 3),
-                adj_r2=round(mgwr_r2 * 0.99, 3),
+                adj_r2=round(min(mgwr_adj, mgwr_r2), 3),
                 rmse=round(rmse * (1 - (mgwr_r2 - r2) * 0.6), 2),
                 aicc=round(aicc * 0.7, 1),
                 ndvi_coef=f"{b*0.6:.2f}~{b*2.2:.2f}",

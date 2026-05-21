@@ -6,12 +6,17 @@ services/embedding.py - OpenAI-compatible Embedding API + Local TF-IDF Fallback
 - Ollama:    http://localhost:11434/v1 (模型: nomic-embed-text)
 
 切换只需修改 .env 中的 EMBEDDING_API_BASE 和 EMBEDDING_MODEL。
+
+注意：使用 requests（同步）而非 httpx 调用 embedding API，
+因为 LM Studio 本地服务与 httpx 存在 HTTP 协议兼容性问题（持续 502），
+而 requests 库工作正常。async 函数通过 asyncio.to_thread 包装同步调用。
 """
+import asyncio
 import logging
 from typing import List, Optional
 
-import httpx
 import numpy as np
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,25 @@ DEFAULT_EMBEDDING_URL = "http://localhost:11434/v1/embeddings"
 def is_embedding_available(api_key: Optional[str]) -> bool:
     """检查是否配置了有效的 embedding API key。"""
     return bool(api_key and api_key.strip())
+
+
+def _call_embedding_api_sync(
+    url: str,
+    headers: dict,
+    payload: dict,
+    timeout: float = 30.0,
+) -> Optional[dict]:
+    """
+    同步调用 Embedding API（使用 requests 库）。
+    返回完整 JSON 响应，失败返回 None。
+    """
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Embedding API call failed: {e}")
+        return None
 
 
 async def get_embedding(
@@ -51,16 +75,17 @@ async def get_embedding(
         "input": text[:8000],  # 截断超长文本
     }
 
+    data = await asyncio.to_thread(_call_embedding_api_sync, _url, headers, payload, 30.0)
+    if data is None:
+        logger.warning("Embedding API returned None, will use TF-IDF fallback")
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(_url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            embedding = data["data"][0]["embedding"]
-            logger.debug(f"Embedding generated, dim={len(embedding)}")
-            return embedding
-    except Exception as e:
-        logger.warning(f"Embedding API failed: {e}, will use TF-IDF fallback")
+        embedding = data["data"][0]["embedding"]
+        logger.debug(f"Embedding generated, dim={len(embedding)}")
+        return embedding
+    except (KeyError, IndexError) as e:
+        logger.warning(f"Embedding response parse error: {e}")
         return None
 
 
@@ -90,15 +115,16 @@ async def get_embeddings(
         "input": [text[:8000] for text in texts],
     }
 
+    data = await asyncio.to_thread(_call_embedding_api_sync, _url, headers, payload, 60.0)
+    if data is None:
+        logger.warning("Batch embedding API returned None")
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(_url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            embeddings = [item["embedding"] for item in data["data"]]
-            return embeddings
-    except Exception as e:
-        logger.warning(f"Batch embedding API failed: {e}")
+        embeddings = [item["embedding"] for item in data["data"]]
+        return embeddings
+    except (KeyError, IndexError) as e:
+        logger.warning(f"Batch embedding response parse error: {e}")
         return None
 
 

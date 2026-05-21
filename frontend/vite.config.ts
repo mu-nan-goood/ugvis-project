@@ -27,7 +27,7 @@ export default defineConfig({
           'echarts-vendor': ['echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers'],
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'leaflet-vendor': ['leaflet', 'react-leaflet'],
-          'markdown-vendor': ['react-markdown', 'remark-gfm', 'rehype-raw'],
+          'markdown-vendor': ['react-markdown', 'remark-gfm'],
         },
       },
     },

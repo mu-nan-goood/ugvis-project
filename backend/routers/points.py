@@ -1,7 +1,9 @@
 """backend/routers/points.py"""
 import io
 import csv
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+import json
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database import get_db
@@ -10,6 +12,9 @@ from services.auth import get_current_user, require_role
 from schemas import UserResponse
 from schemas import SamplingPointResponse, SamplingPointList, ImportResult, ImportError
 from utils import get_gvi_col
+
+# ── M5: CSV 导入文件大小上限 (50 MB) ──────────────────────
+MAX_CSV_IMPORT_SIZE = 50 * 1024 * 1024  # 50 MB
 
 router = APIRouter(prefix="/api", tags=["Sampling Points"])
 
@@ -21,6 +26,7 @@ def get_points(
     limit: int = 100,
     season: str = None,
     road_type: str = None,
+    search: str = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(SamplingPoint)
@@ -32,10 +38,153 @@ def get_points(
         col = get_gvi_col(season, SamplingPoint)
         query = query.filter(col != None)
 
+    if search:
+        try:
+            pid = int(search)
+            query = query.filter(SamplingPoint.point_id == pid)
+        except ValueError:
+            query = query.filter(SamplingPoint.road_type.contains(search))
+
     total = query.count()
     points = query.offset(skip).limit(limit).all()
 
     return {"items": points, "total": total, "skip": skip, "limit": limit}
+
+
+# ── 导出 ────────────────────────────────────────────────
+
+@router.get("/points/export/geojson")
+def export_points_geojson(
+    season: str = Query(None, description="Season filter: spring/summer/autumn/winter"),
+    road_type: str = Query(None, description="Road type filter: rc1/rc2/rc3/rc4"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export sampling points as OGC GeoJSON (RFC 7946).
+    Geometry uses WGS-84 (EPSG:4326) coordinates.
+    """
+    query = db.query(SamplingPoint)
+    if road_type:
+        query = query.filter(SamplingPoint.road_type == road_type)
+    if season:
+        col = get_gvi_col(season, SamplingPoint)
+        query = query.filter(col != None)
+
+    # ── 行数上限（与 CSV 导出一致）───────────────────────
+    total = query.count()
+    MAX_EXPORT_ROWS = 50000
+    if total > MAX_EXPORT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"数据量过大 ({total} 行)，上限 {MAX_EXPORT_ROWS} 行，请使用筛选条件缩小范围",
+        )
+
+    points = query.all()
+
+    features = []
+    for p in points:
+        gvi_val = getattr(p, f"gvi_{season}", None) if season else None
+        properties = {
+            "point_id": p.point_id,
+            "road_type": p.road_type,
+        }
+        if gvi_val is not None:
+            properties["gvi"] = round(gvi_val, 4)
+        # Include all-season GVI if no season filter
+        if not season:
+            for s in ("spring", "summer", "autumn", "winter"):
+                val = getattr(p, f"gvi_{s}", None)
+                if val is not None:
+                    properties[f"gvi_{s}"] = round(val, 4)
+            for s in ("spring", "summer", "autumn", "winter"):
+                val = getattr(p, f"ndvi_{s}", None)
+                if val is not None:
+                    properties[f"ndvi_{s}"] = round(val, 4)
+
+        feature = {
+            "type": "Feature",
+            "id": p.point_id,
+            "geometry": {
+                "type": "Point",
+                "coordinates": [round(p.lng, 6), round(p.lat, 6)],  # [lon, lat] per RFC 7946
+            },
+            "properties": properties,
+        }
+        features.append(feature)
+
+    geojson = {
+        "type": "FeatureCollection",
+        "name": "UGVIS_Sampling_Points",
+        "crs": {
+            "type": "name",
+            "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"},
+        },
+        "features": features,
+    }
+
+    return Response(
+        content=json.dumps(geojson, ensure_ascii=False),
+        media_type="application/geo+json",
+        headers={"Content-Disposition": 'attachment; filename="ugvis_points.geojson"'},
+    )
+
+
+@router.get("/points/export/csv")
+def export_points_csv(
+    season: str = Query(None, description="Season filter: spring/summer/autumn/winter"),
+    road_type: str = Query(None, description="Road type filter: rc1/rc2/rc3/rc4"),
+    search: str = Query(None, description="Search point_id or road_type"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export sampling points as CSV (full dataset, not just current page).
+    Supports server-side search and filtering.
+    """
+    query = db.query(SamplingPoint)
+    if road_type:
+        query = query.filter(SamplingPoint.road_type == road_type)
+    if season:
+        col = get_gvi_col(season, SamplingPoint)
+        query = query.filter(col != None)
+    if search:
+        try:
+            pid = int(search)
+            query = query.filter(SamplingPoint.point_id == pid)
+        except ValueError:
+            query = query.filter(SamplingPoint.road_type.contains(search))
+
+    # ── L2: CSV 导出行数上限 ─────────────────────────────
+    total = query.count()
+    MAX_EXPORT_ROWS = 50000
+    if total > MAX_EXPORT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"数据量过大 ({total} 行)，上限 {MAX_EXPORT_ROWS} 行，请使用筛选条件缩小范围",
+        )
+
+    points = query.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'point_id', 'lat', 'lng',
+        'gvi_spring', 'gvi_summer', 'gvi_autumn', 'gvi_winter',
+        'ndvi_spring', 'ndvi_summer', 'ndvi_autumn', 'ndvi_winter',
+        'road_type',
+    ])
+    for p in points:
+        writer.writerow([
+            p.point_id, p.lat, p.lng,
+            p.gvi_spring or '', p.gvi_summer or '', p.gvi_autumn or '', p.gvi_winter or '',
+            p.ndvi_spring or '', p.ndvi_summer or '', p.ndvi_autumn or '', p.ndvi_winter or '',
+            p.road_type or '',
+        ])
+
+    return Response(
+        content='\ufeff' + output.getvalue(),  # BOM for Excel compatibility
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="ugvis_points.csv"'},
+    )
 
 
 @router.get("/points/{point_id}", response_model=SamplingPointResponse)
@@ -80,7 +229,13 @@ async def import_points(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="只支持 .csv 文件")
 
+    # ── M5: 文件大小校验 ────────────────────────────────
     content = await file.read()
+    if len(content) > MAX_CSV_IMPORT_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大 ({len(content) // (1024*1024)} MB)，上限 50 MB",
+        )
     if not content:
         raise HTTPException(status_code=400, detail="文件为空")
 
@@ -166,6 +321,7 @@ async def import_points(
             road_type = record.get("road_type")
             if road_type and road_type not in _VALID_ROAD_TYPES:
                 errors.append(ImportError(row=row_num, point_id=point_id, message=f"road_type='{road_type}' 非法，有效值: rc1/rc2/rc3/rc4"))
+                continue
 
             records.append(record)
 
@@ -175,37 +331,51 @@ async def import_points(
     # ── 5. 批量 upsert ──────────────────────────────────
     success_count = 0
     error_rows = set(e.row for e in errors)
+    batch_success_indices = set()  # R9 fix: track which records succeeded in batch phase
 
     for i in range(0, len(records), BATCH_SIZE):
         batch = records[i : i + BATCH_SIZE]
-        for rec in batch:
-            try:
+        try:
+            for rec in batch:
                 existing = db.query(SamplingPoint).filter(
                     SamplingPoint.point_id == rec["point_id"]
                 ).first()
                 if existing:
-                    # 更新已有记录
                     for key, val in rec.items():
                         if key != "point_id":
                             setattr(existing, key, val)
                 else:
                     db.add(SamplingPoint(**rec))
-                db.commit()
-                success_count += 1
-            except IntegrityError:
-                db.rollback()
-                errors.append(ImportError(
-                    row=0,  # 无法确定行号
-                    point_id=rec["point_id"],
-                    message=f"point_id={rec['point_id']} 违反完整性约束",
-                ))
-            except Exception as e:
-                db.rollback()
-                errors.append(ImportError(
-                    row=0,
-                    point_id=rec["point_id"],
-                    message=f"数据库写入失败: {str(e)}",
-                ))
+            db.commit()
+            # R9 fix: only count after successful commit
+            success_count += len(batch)
+            batch_success_indices.update(range(i, i + len(batch)))
+        except Exception:
+            db.rollback()
+            # B5 fix: batch commit failed, fall back to row-by-row for granular error reporting
+            for j, rec in enumerate(batch):
+                # R9 fix: skip records already counted in a previous successful batch
+                if i + j in batch_success_indices:
+                    continue
+                try:
+                    existing = db.query(SamplingPoint).filter(
+                        SamplingPoint.point_id == rec["point_id"]
+                    ).first()
+                    if existing:
+                        for key, val in rec.items():
+                            if key != "point_id":
+                                setattr(existing, key, val)
+                    else:
+                        db.add(SamplingPoint(**rec))
+                    db.commit()
+                    success_count += 1
+                except Exception as e:
+                    db.rollback()
+                    errors.append(ImportError(
+                        row=0,
+                        point_id=rec.get("point_id"),
+                        message=f"数据库写入失败: {str(e)}",
+                    ))
 
     # ── 6. 构造返回 ─────────────────────────────────────
     # 限制返回的错误数量（避免响应过大）

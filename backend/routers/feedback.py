@@ -3,14 +3,14 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AdviceFeedback
 from schemas import AdviceFeedbackCreate, AdviceFeedbackResponse, AdviceFeedbackStats
-from services.auth import get_current_user
+from services.auth import get_current_user, require_role
 from schemas import UserResponse
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def submit_feedback(
     当 vote='up' 且 advice_context 非空时，自动将建议索引到 ChromaDB（RAG 知识库）。
     """
     if feedback.vote not in ("up", "down"):
-        raise ValueError("vote must be 'up' or 'down'")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vote must be 'up' or 'down'")
 
     db_feedback = AdviceFeedback(
         vote=feedback.vote,
@@ -78,6 +78,7 @@ def submit_feedback(
         advice_context=feedback.advice_context,
         area_ids=feedback.area_ids,
         season=feedback.season,
+        user_id=current_user.id,
     )
     db.add(db_feedback)
     db.commit()
@@ -105,7 +106,7 @@ def submit_feedback(
                     target=_index_advice_async,
                     args=(
                         feedback.advice_context,
-                        "",  # advice_text 暂无，从 context 即可
+                        feedback.advice_context,  # advice_text = advice_context (was empty "", B16 fix)
                         feedback.area_ids,
                         feedback.season,
                         emb_key,
@@ -170,8 +171,8 @@ def knowledge_base_stats():
 
 
 @router.post("/knowledge-base/reset")
-def reset_knowledge_base():
-    """重置 RAG 知识库（删除所有历史建议索引）。"""
+def reset_knowledge_base(current_user: UserResponse = Depends(require_role(["admin"]))):
+    """重置 RAG 知识库（删除所有历史建议索引）。仅管理员可操作。"""
     try:
         from services.knowledge_base import reset_knowledge_base
 
@@ -185,12 +186,15 @@ def reset_knowledge_base():
 def delete_feedback(
     feedback_id: int,
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
-    """删除单条反馈记录。"""
+    """删除单条反馈记录。仅管理员或反馈提交者可删除。"""
     row = db.query(AdviceFeedback).filter(AdviceFeedback.id == feedback_id).first()
     if not row:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Feedback not found")
+    # 权限检查：admin 可删任意，普通用户仅可删自己的
+    if current_user.role != "admin" and row.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权删除此反馈")
     db.delete(row)
     db.commit()
     return {"ok": True}

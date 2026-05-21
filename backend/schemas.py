@@ -1,5 +1,6 @@
+import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -251,6 +252,7 @@ class Token(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int = 1800  # Access Token 有效期（秒），默认 30 分钟
 
 
 class TokenData(BaseModel):
@@ -264,6 +266,21 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: str = "analyst"  # admin | analyst | guest
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密码长度不能少于8个字符")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("密码必须包含至少一个大写字母")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("密码必须包含至少一个小写字母")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("密码必须包含至少一个数字")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-=+\[\]\\/]', v):
+            raise ValueError("密码必须包含至少一个特殊字符")
+        return v
 
 
 class UserResponse(BaseModel):
@@ -290,3 +307,18 @@ class TokenRefreshRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     old_password: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密码长度不能少于8个字符")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("密码必须包含至少一个大写字母")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("密码必须包含至少一个小写字母")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("密码必须包含至少一个数字")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-=+\[\]\\/]', v):
+            raise ValueError("密码必须包含至少一个特殊字符")
+        return v

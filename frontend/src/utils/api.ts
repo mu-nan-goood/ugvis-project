@@ -12,6 +12,7 @@ const api = axios.create({
 // ── Token 管理 ─────────────────────────────────────────
 
 const ACCESS_TOKEN_KEY = 'ugvis_access_token'
+const REFRESH_TOKEN_KEY = 'ugvis_refresh_token'
 
 export function getAccessToken(): string | null {
   return sessionStorage.getItem(ACCESS_TOKEN_KEY)
@@ -23,6 +24,7 @@ export function setAccessToken(token: string): void {
 
 export function clearAccessToken(): void {
   sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+  sessionStorage.removeItem(REFRESH_TOKEN_KEY)
 }
 
 /** 为原生 fetch 请求构建带 Authorization 的 headers */
@@ -74,12 +76,16 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
+        const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY)
         const { data } = await axios.post<AuthResponse>(
           `${API_BASE}/auth/refresh`,
-          {},
+          { refresh_token: refreshToken },
           { withCredentials: true }
         )
         setAccessToken(data.access_token)
+        if (data.refresh_token) {
+          sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
+        }
         processRefreshQueue(data.access_token)
         isRefreshing = false
 
@@ -103,6 +109,9 @@ api.interceptors.response.use(
 export async function login(req: LoginRequest): Promise<AuthResponse> {
   const { data } = await api.post<AuthResponse>('/auth/login', req)
   setAccessToken(data.access_token)
+  if (data.refresh_token) {
+    sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
+  }
   return data
 }
 
@@ -146,6 +155,7 @@ export async function fetchPoints(params?: {
   limit?: number
   season?: string
   road_type?: string
+  search?: string
 }) {
   const { data } = await api.get('/points', { params })
   return data
@@ -202,7 +212,7 @@ export interface PlanningResponse {
 
 
 export async function fetchPlanningWeakAreas(
-  params: { skip?: number; limit?: number; priority?: string } = {}
+  params: { skip?: number; limit?: number; priority?: string; road_type?: string } = {}
 ): Promise<PlanningResponse> {
   const { data } = await api.get('/planning/weak-areas', { params })
   return data
@@ -213,10 +223,13 @@ export async function fetchPlanningWeakAreas(
 /** 专家小组 SSE 事件 */
 export type ExpertPanelEvent =
   | { type: 'panel_start'; experts?: Array<{ emoji: string; name: string }> }
+  | { type: 'expert_start'; expert_id: string; expert_name: string; emoji?: string }
+  | { type: 'expert_chunk'; expert_id: string; content: string }
   | { type: 'expert_done'; expert_id: string; expert_name: string; emoji?: string; opinion: string }
   | { type: 'moderator_start' }
   | { type: 'moderator_chunk'; content: string }
   | { type: 'moderator_done'; content?: string }
+  | { type: 'moderator_error'; content: string }
   | { type: 'panel_done' }
   | { type: 'error'; content: string }
 
@@ -449,14 +462,14 @@ export async function deleteFeedback(id: number): Promise<void> {
 // ── 绿波路线规划 ─────────────────────────────────────
 
 /** 分析路线 GVI */
-export async function analyzeRoute(coords: RouteCoord[]): Promise<RouteAnalysis> {
-  const { data } = await api.post<RouteAnalysis>('/routing/analyze', { coords })
+export async function analyzeRoute(coords: RouteCoord[], season?: string): Promise<RouteAnalysis> {
+  const { data } = await api.post<RouteAnalysis>('/routing/analyze', { coords, season: season || 'spring' })
   return data
 }
 
 /** 路线对比（用户路线 vs 更绿路线） */
-export async function compareRoutes(coords: RouteCoord[]): Promise<RouteComparison> {
-  const { data } = await api.post<RouteComparison>('/routing/compare', { coords })
+export async function compareRoutes(coords: RouteCoord[], season?: string): Promise<RouteComparison> {
+  const { data } = await api.post<RouteComparison>('/routing/compare', { coords, season: season || 'spring' })
   return data
 }
 

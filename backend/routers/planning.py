@@ -77,20 +77,26 @@ _ROAD_SUGGESTIONS = {
 }
 
 
-def _get_weak_areas_from_db(db: Session, limit: int = 500) -> List[Dict[str, Any]]:
+def _get_gvi_column(season: str):
+    """Get the SQLAlchemy GVI column for a given season."""
+    return getattr(SamplingPoint, f"gvi_{season}", SamplingPoint.gvi_winter)
+
+
+def _get_weak_areas_from_db(db: Session, limit: int = 500, season: str = "winter") -> List[Dict[str, Any]]:
     """Fetch weak areas from database."""
+    gvi_col = _get_gvi_column(season)
     weak_rows = db.query(SamplingPoint).filter(
-        SamplingPoint.gvi_winter != None,
-        SamplingPoint.gvi_winter < 10,
+        gvi_col != None,
+        gvi_col < 10,
     ).all()
 
     areas = []
     for idx, p in enumerate(weak_rows[:limit]):
-        winter_gvi = p.gvi_winter if p.gvi_winter else 0
+        gvi_val = getattr(p, f"gvi_{season}", 0) or 0
 
-        if winter_gvi < 5:
+        if gvi_val < 5:
             priority = "high"
-        elif winter_gvi < 8:
+        elif gvi_val < 8:
             priority = "medium"
         else:
             priority = "low"
@@ -115,37 +121,49 @@ def get_planning(
     skip: int = 0,
     limit: int = 50,
     priority: Optional[str] = None,
+    road_type: Optional[str] = None,
+    season: str = "winter",
     db: Session = Depends(get_db),
 ):
-    """规划决策：识别绿化薄弱区并给出改造建议（支持分页）"""
+    """规划决策：识别绿化薄弱区并给出改造建议（支持分页和季节筛选）"""
     from sqlalchemy import func as sa_func
 
+    # Validate season parameter
+    if season not in ("spring", "summer", "autumn", "winter"):
+        raise HTTPException(status_code=400, detail=f"Invalid season: {season}. Must be one of: spring, summer, autumn, winter")
+
+    gvi_col = _get_gvi_column(season)
+
     base_q = db.query(SamplingPoint).filter(
-        SamplingPoint.gvi_winter != None,
-        SamplingPoint.gvi_winter < 10,
+        gvi_col != None,
+        gvi_col < 10,
     )
 
     # Priority filter
     if priority == "high":
-        base_q = base_q.filter(SamplingPoint.gvi_winter < 5)
+        base_q = base_q.filter(gvi_col < 5)
     elif priority == "medium":
-        base_q = base_q.filter(SamplingPoint.gvi_winter >= 5, SamplingPoint.gvi_winter < 8)
+        base_q = base_q.filter(gvi_col >= 5, gvi_col < 8)
     elif priority == "low":
-        base_q = base_q.filter(SamplingPoint.gvi_winter >= 8, SamplingPoint.gvi_winter < 10)
+        base_q = base_q.filter(gvi_col >= 8, gvi_col < 10)
+
+    # F6 fix: road_type filter on server side
+    if road_type:
+        base_q = base_q.filter(SamplingPoint.road_type == road_type)
 
     # Total count for pagination
     total = base_q.count()
 
     # Paginated query
-    weak_rows = base_q.order_by(SamplingPoint.gvi_winter.asc()).offset(skip).limit(limit).all()
+    weak_rows = base_q.order_by(gvi_col.asc()).offset(skip).limit(limit).all()
 
     weak_areas = []
     for idx, p in enumerate(weak_rows):
-        winter_gvi = p.gvi_winter if p.gvi_winter else 0
+        gvi_val = getattr(p, f"gvi_{season}", 0) or 0
 
-        if winter_gvi < 5:
+        if gvi_val < 5:
             p_level = "high"
-        elif winter_gvi < 8:
+        elif gvi_val < 8:
             p_level = "medium"
         else:
             p_level = "low"
@@ -171,13 +189,13 @@ def get_planning(
 
     # Global stats (always full counts, not filtered by priority param)
     high_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        SamplingPoint.gvi_winter != None, SamplingPoint.gvi_winter < 5
+        gvi_col != None, gvi_col < 5
     ).scalar()
     med_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        SamplingPoint.gvi_winter >= 5, SamplingPoint.gvi_winter < 8
+        gvi_col >= 5, gvi_col < 8
     ).scalar()
     low_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        SamplingPoint.gvi_winter >= 8, SamplingPoint.gvi_winter < 10
+        gvi_col >= 8, gvi_col < 10
     ).scalar()
 
     stats = PlanningStats(
@@ -240,7 +258,7 @@ async def generate_advice(
         raise
     except Exception as e:
         logger.error(f"Error generating advice: {e}")
-        raise HTTPException(status_code=500, detail=f"生成建议时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail="生成建议时出错，请稍后重试")
 
 
 @router.post("/stream")
@@ -283,7 +301,7 @@ async def stream_advice(
 
         except Exception as e:
             logger.error(f"Stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': '服务器内部错误，请稍后重试'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -333,7 +351,7 @@ async def chat(
         raise
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=f"对话出错: {str(e)}")
+        raise HTTPException(status_code=500, detail="对话出错，请稍后重试")
 
 
 @router.post("/chat-stream")
@@ -390,7 +408,7 @@ async def chat_stream(
 
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': '服务器内部错误，请稍后重试'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -442,7 +460,7 @@ async def expert_panel(
 
         except Exception as e:
             logger.error(f"Expert panel error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': '服务器内部错误，请稍后重试'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

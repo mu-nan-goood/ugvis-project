@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import GVIChart from '../components/GVIChart'
+import GVIMap from '../components/GVIMap'
 import type { EChartsOption } from '../components/GVIChart'
 import { fetchSeasonalAnalysis } from '../utils/api'
-import { SEASON_LABELS, type Season } from '../types'
+import { SEASON_LABELS, type Season, type MapPoint } from '../types'
 
 interface BoxplotData {
   season: string
@@ -100,57 +101,20 @@ export default function SeasonalAnalysis() {
     ],
   }
 
-  // 变异系数散点图（采样显示，最多2000点）
-  const sampledCV = cvPoints.length > 2000
-    ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
-    : cvPoints
-
-  // 动态计算地图边界（从实际数据推导，不再硬编码南京经纬度）
-  const cvLngs = sampledCV.map((p) => p.lng)
-  const cvLats = sampledCV.map((p) => p.lat)
-  const cvBounds = cvLngs.length > 0 ? {
-    minLng: Math.min(...cvLngs),
-    maxLng: Math.max(...cvLngs),
-    minLat: Math.min(...cvLats),
-    maxLat: Math.max(...cvLats),
-  } : null
-
-  const cvOption: EChartsOption = {
-    title: { text: '季节变异系数(CV)分布', left: 'center' },
-    tooltip: {
-      formatter: (params: unknown) => {
-        const d = (params as { data?: unknown[] }).data
-        if (!d || d.length < 4) return ''
-        return `CV: ${(d[2] as number).toFixed(1)}%<br/>平均GVI: ${(d[3] as number).toFixed(1)}%`
-      },
-    },
-    visualMap: {
-      min: 0,
-      max: 80,
-      calculable: true,
-      inRange: { color: ['#22c55e', '#fbbf24', '#ef4444'] },
-    },
-    xAxis: {
-      type: 'value',
-      min: cvBounds ? cvBounds.minLng - 0.05 : undefined,
-      max: cvBounds ? cvBounds.maxLng + 0.05 : undefined,
-      name: '经度',
-    },
-    yAxis: {
-      type: 'value',
-      min: cvBounds ? cvBounds.minLat - 0.05 : undefined,
-      max: cvBounds ? cvBounds.maxLat + 0.05 : undefined,
-      name: '纬度',
-    },
-    series: [
-      {
-        type: 'scatter',
-        data: sampledCV.map((p) => [p.lng, p.lat, p.cv, p.mean_gvi]),
-        symbolSize: 6,
-        itemStyle: { opacity: 0.7 },
-      },
-    ],
-  }
+  // 变异系数散点图 -> 地图可视化
+  const cvMapPoints: MapPoint[] = useMemo(() => {
+    const sampled = cvPoints.length > 2000
+      ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
+      : cvPoints
+    return sampled.map((p, i) => ({
+      id: i,
+      lat: p.lat,
+      lng: p.lng,
+      gvi: p.cv,        // gvi field used for CV value (drives color)
+      ndvi: p.mean_gvi, // ndvi field used for mean GVI
+      road_type: p.road_type,
+    }))
+  }, [cvPoints])
 
   return (
     <div className="space-y-6">
@@ -240,8 +204,24 @@ export default function SeasonalAnalysis() {
       )}
 
       {metric === 'cv' && (
-        <div className="card">
-          <GVIChart option={cvOption} className="h-96" />
+        <div className="space-y-4">
+          <div className="card">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">季节变异系数(CV)地图分布</h3>
+              <span className="text-sm text-gray-500">
+                {cvMapPoints.length.toLocaleString()} 个采样点 · 绿(CV低) → 红(CV高)
+              </span>
+            </div>
+            <GVIMap
+              points={cvMapPoints}
+              season="spring"
+              displayMode="heatmap"
+              className="h-[500px] rounded-lg"
+            />
+            <p className="text-xs text-gray-400 mt-2">
+              颜色越绿表示季节稳定性越高(CV越低)，颜色越红表示波动越大(CV越高)。点击采样点查看详情。
+            </p>
+          </div>
         </div>
       )}
 
