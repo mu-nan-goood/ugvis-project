@@ -38,7 +38,7 @@ export default function DataManagement() {
   // Load map points when map is shown
   useEffect(() => {
     if (!showMap) return
-    fetchMapPoints({ season, limit: 50000 })
+    fetchMapPoints({ season, limit: 20000 })
       .then((data) => setMapPoints(data.points || []))
       .catch(() => setMapPoints([]))
   }, [showMap, season])
@@ -192,10 +192,11 @@ export default function DataManagement() {
         <div className={`grid gap-6 ${showMap ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {/* Map Panel */}
           {showMap && (
-            <div className="card p-2" style={{ minHeight: 400 }}>
+            <div className="card p-2" style={{ height: 500 }}>
               <GVIMap
                 points={mapPoints}
                 season={season}
+                displayMode="heatmap"
                 highlightIds={highlightIds}
                 initialCenter={mapCenter}
                 className="rounded-lg"

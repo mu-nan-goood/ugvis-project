@@ -18,7 +18,7 @@ _SEASONS_MAP = {
 
 
 @router.get("/analysis", response_model=SeasonalAnalysisResponse, summary="Get seasonal GVI/NDVI analysis by road type")
-def get_seasonal_analysis(db: Session = Depends(get_db)):
+def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_db)):
     """季节变异分析：箱线图、统计摘要、变异系数、稳定性分区"""
     # Try cache first (TTL: 10 min — seasonal data rarely changes)
     cached = cache.get("seasonal:analysis")
@@ -58,7 +58,8 @@ def get_seasonal_analysis(db: Session = Depends(get_db)):
                 mean=0, std=0, cv=0, sample_count=0,
             ))
 
-    # 变异系数 — 逐点计算 CV (采样以提高性能)
+    # 变异系数 — 逐点计算 CV
+    # 分两步：全量统计稳定性 + 采样返回cv_points供地图渲染
     all_points = db.query(
         SamplingPoint.lat,
         SamplingPoint.lng,
@@ -74,7 +75,12 @@ def get_seasonal_analysis(db: Session = Depends(get_db)):
     moderate = 0
     unstable = 0
 
-    for p in all_points:
+    # 等间隔采样索引（保证cv_points均匀分布）
+    total = len(all_points)
+    step = max(1, total // cv_limit) if cv_limit < total else 1
+    sample_indices = set(range(0, total, step))
+
+    for i, p in enumerate(all_points):
         gvi_vals = [v for v in [p.gvi_spring, p.gvi_summer, p.gvi_autumn, p.gvi_winter] if v is not None]
         if len(gvi_vals) < 2:
             continue
@@ -91,13 +97,15 @@ def get_seasonal_analysis(db: Session = Depends(get_db)):
         else:
             unstable += 1
 
-        cv_points.append(CVPoint(
-            lat=p.lat,
-            lng=p.lng,
-            cv=round(cv, 1),
-            mean_gvi=round(mean_gvi, 2),
-            road_type=p.road_type,
-        ))
+        # 只把采样点加入cv_points
+        if i in sample_indices:
+            cv_points.append(CVPoint(
+                lat=p.lat,
+                lng=p.lng,
+                cv=round(cv, 1),
+                mean_gvi=round(mean_gvi, 2),
+                road_type=p.road_type,
+            ))
 
     total_pts = stable + moderate + unstable
     stability = StabilityStats(

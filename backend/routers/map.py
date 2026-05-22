@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["Map"])
 @router.get("/map/points", summary="Get sampling points for map rendering")
 def get_map_points(
     season: str = Query("spring", description="季节: spring/summer/autumn/winter"),
-    limit: int = Query(5000, ge=1, le=20000, description="返回点数上限"),
+    limit: int = Query(5000, ge=1, le=50000, description="返回点数上限"),
     min_gvi: float = Query(None, description="GVI 下限"),
     max_gvi: float = Query(None, description="GVI 上限"),
     road_type: str = Query(None, description="道路类型: rc1/rc2/rc3/rc4"),

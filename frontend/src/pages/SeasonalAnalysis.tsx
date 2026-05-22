@@ -67,6 +67,22 @@ export default function SeasonalAnalysis() {
       })
   }, [])
 
+  // 所有 Hooks 必须在 early return 之前调用
+  // 变异系数散点图 -> 地图可视化
+  const cvMapPoints: MapPoint[] = useMemo(() => {
+    const sampled = cvPoints.length > 2000
+      ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
+      : cvPoints
+    return sampled.map((p, i) => ({
+      id: i,
+      lat: p.lat,
+      lng: p.lng,
+      gvi: p.cv,        // gvi field used for CV value (drives color)
+      ndvi: p.mean_gvi, // ndvi field used for mean GVI
+      road_type: p.road_type,
+    }))
+  }, [cvPoints])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -86,35 +102,35 @@ export default function SeasonalAnalysis() {
   // 箱线图
   const boxplotOption: EChartsOption = {
     title: { text: '四季GVI箱线图', left: 'center' },
-    tooltip: { trigger: 'item' },
+    tooltip: { trigger: 'item', formatter: (params: any) => {
+      if (params.seriesType !== 'boxplot') return ''
+      const d = params.data
+      return `<b>${params.name}</b><br/>`
+        + `最大值: ${d[4]}%<br/>`
+        + `Q3: ${d[3]}%<br/>`
+        + `中位数: ${d[2]}%<br/>`
+        + `Q1: ${d[1]}%<br/>`
+        + `最小值: ${d[0]}%`
+    }},
+    grid: { left: '12%', right: '8%', bottom: '12%', top: '15%' },
     xAxis: {
       type: 'category',
       data: boxplot.map((b) => SEASON_LABELS[b.season as Season] || b.season),
     },
-    yAxis: { type: 'value', name: 'GVI (%)' },
+    yAxis: {
+      type: 'value',
+      name: 'GVI (%)',
+      min: (value: { min: number }) => Math.floor(value.min / 5) * 5,
+    },
     series: [
       {
         type: 'boxplot',
         data: boxplot.map((b) => [b.min_val, b.q1, b.median, b.q3, b.max_val]),
         itemStyle: { color: '#22c55e', borderColor: '#16a34a' },
+        boxWidth: ['30%', '70%'],
       },
     ],
   }
-
-  // 变异系数散点图 -> 地图可视化
-  const cvMapPoints: MapPoint[] = useMemo(() => {
-    const sampled = cvPoints.length > 2000
-      ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
-      : cvPoints
-    return sampled.map((p, i) => ({
-      id: i,
-      lat: p.lat,
-      lng: p.lng,
-      gvi: p.cv,        // gvi field used for CV value (drives color)
-      ndvi: p.mean_gvi, // ndvi field used for mean GVI
-      road_type: p.road_type,
-    }))
-  }, [cvPoints])
 
   return (
     <div className="space-y-6">

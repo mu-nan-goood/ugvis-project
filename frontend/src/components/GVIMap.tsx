@@ -486,7 +486,7 @@ export default function GVIMap({
   }, [points, season, highlightIds, highlightRoute, initialCenter, routeWaypoints, toMapCoord])
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative h-full ${className}`}>
       <div ref={mapRef} className='w-full h-full rounded-lg' />
       {/* GVI Color Legend */}
       <div className='absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-md px-3 py-2 z-[1000] text-xs'>

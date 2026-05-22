@@ -19,14 +19,14 @@
 | RAG 知识库 | ChromaDB + Nomic Embedding，正向反馈自动索引，30+ 条种子建议 |
 | 地图交互闭环 | 薄弱区域 ↔ 地图双向跳转、路线可视化、GVI 剖面图 |
 | 建议质量反馈 | 👍👎 评分 + 文字评论 + 统计 + RAG 自动索引 |
-| 数据管理 | 采样点查询、筛选、CSV/GeoJSON 导入导出、地图联动 |
+| 数据管理 | 采样点查询、筛选、CSV/GeoJSON 导入导出、热力图联动 |
 | 用户认证 | JWT + bcrypt，角色控制(admin/analyst/guest)，速率限制 |
 
 ---
 
 ## 技术栈
 
-**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet(preferCanvas) + ECharts
+**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet(preferCanvas+Canvas renderer) + ECharts(按需引入)
 
 **后端**: FastAPI + SQLAlchemy + SQLite(201K点/40K道路/472K模型结果) + Alembic
 
@@ -120,6 +120,8 @@ npm run dev -- --host
 ```
 
 访问 http://localhost:5173
+
+> ⚠️ Windows 下前端启动必须使用 `npx vite` 或 `node_modules\.bin\vite.cmd`，不能直接运行 shell 脚本。
 
 ### Docker Compose 启动
 
@@ -229,6 +231,18 @@ docker-compose up -d
 | 6 | 建议质量反馈 | ✅ |
 | 7 | RAG（检索增强生成） | ✅ |
 | 8 | Expert Panel（多专家） | ✅ |
+
+---
+
+## 最近更新
+
+### 2026-05-22 — 前端渲染优化 & API 修复
+
+- **季节分析 API 响应优化**: 从 10.3MB 压缩至 158KB（cv_limit 采样）
+- **箱线图渲染修复**: GVI=0 拉低 y 轴问题，增加五数概括 tooltip
+- **数据管理地图修复**: Leaflet 容器高度链修复，改用热力图模式
+- **地图 API 422 修复**: limit 上限从 20000 提至 50000
+- **React Hooks 顺序修复**: SeasonalAnalysis useMemo 移至 early return 前
 
 ---
 
