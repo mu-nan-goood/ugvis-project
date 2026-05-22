@@ -421,7 +421,7 @@ async def chat_stream(
     )
 
 
-@router.get("/tools", summary="Run expert panel analysis (4 experts + moderator)")
+@router.get("/tools", summary="Get available Function Calling tool schemas")
 def get_tools(current_user: UserResponse = Depends(get_current_user)):
     """Get available tool schemas for Function Calling."""
     return {"tools": get_tool_schemas()}

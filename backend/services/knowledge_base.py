@@ -144,11 +144,9 @@ async def index_advice(
         return False
 
     # 生成唯一 ID
-    import hashlib, time
+    import uuid
 
-    record_id = hashlib.sha256(
-        f"{advice_context[:100]}{time.time()}".encode()
-    ).hexdigest()[:16]
+    record_id = uuid.uuid4().hex[:16]
 
     metadata = {
         "vote": vote,

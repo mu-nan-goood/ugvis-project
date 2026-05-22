@@ -124,12 +124,13 @@ def submit_feedback(
     return db_feedback
 
 
-@router.get("", response_model=List[AdviceFeedbackResponse], summary="List feedback records")
+@router.get("", response_model=List[AdviceFeedbackResponse], summary="List feedback records (authenticated)")
 def list_feedback(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     vote: Optional[str] = Query(None, description="过滤: 'up' 或 'down'"),
     db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """查询反馈记录列表（最新优先）。"""
     query = db.query(AdviceFeedback)
@@ -144,7 +145,7 @@ def list_feedback(
     )
 
 
-@router.get("/stats", response_model=AdviceFeedbackStats, summary="Get feedback statistics")
+@router.get("/stats", response_model=AdviceFeedbackStats, summary="Get feedback statistics (public)")
 def feedback_stats(db: Session = Depends(get_db)):
     """获取反馈统计：总数、好评数、差评数、好评率。"""
     total = db.query(AdviceFeedback).count()

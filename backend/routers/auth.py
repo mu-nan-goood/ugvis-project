@@ -150,13 +150,13 @@ def refresh_token(request: Request, token_data: TokenRefreshRequest, db: Session
     return Token(access_token=access_token, refresh_token=new_refresh_token)
 
 
-@router.get("/me", response_model=UserResponse, summary="Logout (client-side token removal)")
+@router.get("/me", response_model=UserResponse, summary="Get current user info")
 def get_me(current_user: UserResponse = Depends(get_current_user)):
     """获取当前用户信息"""
     return current_user
 
 
-@router.post("/logout", summary="Change current user password")
+@router.post("/logout", summary="Logout (client-side token removal)")
 def logout(current_user: UserResponse = Depends(get_current_user)):
     """用户登出（客户端清除 Token 即可，服务端无需吊销）"""
     logger.info(f"用户登出: {current_user.username}")
