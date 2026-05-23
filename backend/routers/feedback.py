@@ -217,8 +217,8 @@ def seed_knowledge_base_endpoint(current_user: UserResponse = Depends(require_ro
         from services.knowledge_base import seed_knowledge_base
         from config import settings
 
-        embedding_key = settings.embedding_api_key or ""
-        embedding_base = settings.embedding_api_base
+        embedding_key = getattr(settings, "embedding_api_key", "") or ""
+        embedding_base = getattr(settings, "embedding_api_base", None)
 
         count = seed_knowledge_base(
             embedding_api_key=embedding_key,
