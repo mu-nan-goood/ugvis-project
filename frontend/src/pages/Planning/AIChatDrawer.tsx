@@ -46,17 +46,19 @@ export default function AIChatDrawer({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
-  // Listen for AI ask events from MapView
+  // R12 fix: listen for CustomEvent dispatched by GVIMap instead of MessageEvent.
+  // GVIMap dispatches CustomEvents (ugvis-ask-ai), not window.postMessage.
+  // Using the correct event type avoids unnecessary origin checks.
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return
-      if (e.data?.type === 'ask-ai') {
-        const context = e.data.context || ''
-        if (context) setInputMessage(context)
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.pointId != null) {
+        // Set a prompt context referencing the clicked point
+        setInputMessage(`请分析采样点 ${detail.pointId} 的绿化情况`)
       }
     }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
+    window.addEventListener('ugvis-ask-ai', handler)
+    return () => window.removeEventListener('ugvis-ask-ai', handler)
   }, [])
 
   async function handleSendMessage() {
@@ -221,6 +223,9 @@ export default function AIChatDrawer({
             fullText += `> ❌ ${toolName} 执行失败: ${event.error || '未知错误'}\n`
           }
           setStreamingText(fullText)
+        } else if (event.type === 'start') {
+          // R4 fix: show start indicator so user knows the request is being processed
+          setStreamingText('⏳ 正在思考...')
         } else if (event.type === 'error') {
           onMessagesChange(prev => [...prev, { role: 'assistant', content: '错误: ' + event.content }])
           setStreamingText('')

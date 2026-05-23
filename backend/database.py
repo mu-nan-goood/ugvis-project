@@ -49,3 +49,48 @@ with engine.begin() as conn:
         except Exception:
             # 忽略已知兼容性问题，索引创建失败不影响服务启动
             pass
+
+
+# ── R2-tech fix: Register Python UDFs for SQLite ─────────────────────────────
+# SQLite lacks built-in stddev/standard deviation aggregate.
+# We register Python-based aggregate functions so SQL queries can use them.
+import math as _math
+import statistics as _statistics
+
+if settings.database_url.startswith("sqlite"):
+    class _StddevAggregate:
+        """SQLite aggregate function: stddev (population standard deviation)."""
+        def __init__(self):
+            self.values: list[float] = []
+
+        def step(self, value):
+            if value is not None:
+                self.values.append(float(value))
+
+        def finalize(self):
+            if len(self.values) < 2:
+                return 0.0
+            return _statistics.pstdev(self.values)
+
+    class _StddevSampleAggregate:
+        """SQLite aggregate function: stddev_samp (sample standard deviation)."""
+        def __init__(self):
+            self.values: list[float] = []
+
+        def step(self, value):
+            if value is not None:
+                self.values.append(float(value))
+
+        def finalize(self):
+            if len(self.values) < 2:
+                return 0.0
+            return _statistics.stdev(self.values)
+
+    # Register UDFs on the underlying raw connection via SQLAlchemy event
+    from sqlalchemy import event as _sa_event
+
+    @_sa_event.listens_for(engine, "connect")
+    def _register_sqlite_udfs(dbapi_connection, connection_record):
+        """Register custom aggregate functions on each new SQLite connection."""
+        dbapi_connection.create_aggregate("stddev", 1, _StddevAggregate)
+        dbapi_connection.create_aggregate("stddev_samp", 1, _StddevSampleAggregate)

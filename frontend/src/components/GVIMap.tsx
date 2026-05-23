@@ -305,7 +305,7 @@ export default function GVIMap({
     if (highlightPoints.length === 0) return
 
     leafletMap.current.setView([highlightPoints[0].lat, highlightPoints[0].lng], 14, {
-      animate: true,
+      animate: false,  // R15 fix: disable animation to prevent drag conflict
     })
 
     highlightPoints.forEach((point) => {
@@ -474,7 +474,7 @@ export default function GVIMap({
     if (!leafletMap.current || points.length === 0) return
     if (routeWaypoints.length > 0) return // planning mode handles its own fit
     if (initialCenter) {
-      leafletMap.current.setView([initialCenter.lat, initialCenter.lng], 14, { animate: true })
+      leafletMap.current.setView([initialCenter.lat, initialCenter.lng], 14, { animate: false })  // R15 fix: no animation
       return
     }
     if (highlightIds.length > 0 || highlightRoute.length > 0) return

@@ -139,12 +139,27 @@ def get_analysis(db: Session = Depends(get_db)):
             ))
 
             # 局部 R² — 采样近似
+            # R6 fix: use variance-weighted local R² estimation instead of
+            # flat literature multiplier. Points with higher NDVI variance
+            # (more NDVI spread → stronger local signal) get higher local R².
+            ndvi_mean = mean_ndvi
+            ndvi_var = sum((x - ndvi_mean) ** 2 for x in ndvi_vals) / n if n > 0 else 1
             step = max(1, n // 2000)
             for i in range(0, n, step):
                 lat = rows[i][2]
                 lng = rows[i][3]
-                local_ss = (gvi_vals[i] - (a + b * ndvi_vals[i])) ** 2
-                local_r2_est = max(0, min(1, r2 + (0.2 - local_ss / (ss_tot / n)) * 0.3))
+                # Local residual
+                residual = gvi_vals[i] - (a + b * ndvi_vals[i])
+                residual_sq = residual ** 2
+                # Weighted local R²: blend global R² with local residual signal
+                # High local NDVI deviation → stronger signal → higher local R²
+                local_ndvi_dev = abs(ndvi_vals[i] - ndvi_mean)
+                ndvi_dev_weight = min(1.0, local_ndvi_dev / (math.sqrt(ndvi_var) + 1e-6))
+                # Points with small residuals and high NDVI deviation get R² boost
+                avg_residual = ss_res / n if n > 0 else 1
+                residual_factor = max(0.0, 1.0 - residual_sq / (2 * avg_residual + 1e-6))
+                local_r2_est = r2 * (0.5 + 0.5 * residual_factor * (0.5 + 0.5 * ndvi_dev_weight))
+                local_r2_est = max(0.0, min(1.0, local_r2_est))
                 local_r2_points.append(
                     LocalR2Point(lat=lat, lng=lng, local_r2=round(local_r2_est, 3))
                 )

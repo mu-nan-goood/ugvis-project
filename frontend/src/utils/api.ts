@@ -218,6 +218,43 @@ export async function fetchPlanningWeakAreas(
   return data
 }
 
+// ── SSE 通用解析器 ──────────────────────────────────────
+
+/**
+ * R16 fix: Extract common SSE stream parser to eliminate triple duplication.
+ * Reads SSE `data: {json}\n\n` frames from a fetch Response body,
+ * parses each frame as JSON, and yields typed events.
+ */
+async function* parseSSEResponse<T>(
+  response: Response,
+): AsyncGenerator<T, void, unknown> {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('No response body')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() || ''
+
+    for (const frame of frames) {
+      const match = frame.match(/^data: (.+)$/m)
+      if (match) {
+        try {
+          yield JSON.parse(match[1]) as T
+        } catch {
+          // ignore parse error — incomplete JSON will be in next chunk
+        }
+      }
+    }
+  }
+}
+
 // ── SSE 事件类型定义 ──────────────────────────────────
 
 /** 专家小组 SSE 事件 */
@@ -235,9 +272,11 @@ export type ExpertPanelEvent =
 
 /** 对话流 SSE 事件 */
 export type ChatStreamEvent =
+  | { type: 'start' }
   | { type: 'chunk'; content: string }
   | { type: 'tool_call_start'; name: string; arguments?: Record<string, unknown> }
   | { type: 'tool_result'; name: string; data?: unknown; success: boolean; error?: string }
+  | { type: 'done'; content: string; structured?: Record<string, unknown> }
   | { type: 'error'; content: string }
 
 // ── AI / LLM 相关 ──────────────────────────────────────
@@ -291,31 +330,7 @@ export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGene
     throw new Error(`HTTP ${response.status}`)
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      const match = line.match(/^data: (.+)$/m)
-      if (match) {
-        try {
-          yield JSON.parse(match[1]) as ChatStreamEvent
-        } catch {
-          // ignore parse error
-        }
-      }
-    }
-  }
+  yield* parseSSEResponse<ChatStreamEvent>(response)
 }
 
 /**
@@ -340,31 +355,7 @@ export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStre
     throw new Error(`HTTP ${response.status}`)
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      const match = line.match(/^data: (.+)$/m)
-      if (match) {
-        try {
-          yield JSON.parse(match[1]) as ChatStreamEvent
-        } catch {
-          // ignore parse error
-        }
-      }
-    }
-  }
+  yield* parseSSEResponse<ChatStreamEvent>(response)
 }
 
 // ── 数据导入 ───────────────────────────────────────────
@@ -506,31 +497,7 @@ export async function* streamExpertPanel(
     throw new Error(`HTTP ${response.status}`)
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      const match = line.match(/^data: (.+)$/m)
-      if (match) {
-        try {
-          yield JSON.parse(match[1]) as ExpertPanelEvent
-        } catch {
-          // ignore parse error
-        }
-      }
-    }
-  }
+  yield* parseSSEResponse<ExpertPanelEvent>(response)
 }
 
 export default api

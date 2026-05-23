@@ -28,12 +28,39 @@ def _index_advice_async(
     """
     后台任务：将高好评建议索引到 ChromaDB。
     在独立线程中运行，避免阻塞请求。
+
+    R2 fix: Use asyncio.run_coroutine_threadsafe to schedule the coroutine
+    on the main FastAPI event loop instead of creating a new event loop
+    in the daemon thread (which caused event loop conflicts).
+    Falls back to a new event loop if the main loop is unavailable.
     """
     try:
         import chromadb
         from services.knowledge_base import index_advice
 
-        # 直接调用 async index_advice（在新事件循环中运行）
+        # Try to use the running event loop (FastAPI's main loop)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Schedule coroutine on the running loop and wait for result
+                future = asyncio.run_coroutine_threadsafe(
+                    index_advice(
+                        advice_context=advice_context,
+                        advice_text=advice_text,
+                        vote="up",
+                        area_ids=area_ids,
+                        season=season,
+                        embedding_api_key=embedding_api_key,
+                        embedding_base_url=embedding_api_base,
+                    ),
+                    loop,
+                )
+                future.result(timeout=30)  # Wait up to 30s
+                return
+        except RuntimeError:
+            pass  # No running loop, fall through to new loop
+
+        # Fallback: create a new event loop (only if no running loop exists)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -172,13 +199,32 @@ def knowledge_base_stats():
 
 
 @router.post("/knowledge-base/reset", summary="Reset RAG knowledge base (admin only)")
-def reset_knowledge_base(current_user: UserResponse = Depends(require_role(["admin"]))):
+def reset_knowledge_base_endpoint(current_user: UserResponse = Depends(require_role(["admin"]))):
     """重置 RAG 知识库（删除所有历史建议索引）。仅管理员可操作。"""
     try:
         from services.knowledge_base import reset_knowledge_base
 
         ok = reset_knowledge_base()
         return {"ok": ok, "message": "Knowledge base reset successfully" if ok else "Reset failed"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/knowledge-base/seed", summary="Seed RAG knowledge base with curated advice (admin only)")
+def seed_knowledge_base_endpoint(current_user: UserResponse = Depends(require_role(["admin"]))):
+    """R3-tech: 用精选城市绿化建议填充 RAG 知识库。仅管理员可操作。"""
+    try:
+        from services.knowledge_base import seed_knowledge_base
+        from config import settings
+
+        embedding_key = settings.embedding_api_key or ""
+        embedding_base = settings.embedding_api_base
+
+        count = seed_knowledge_base(
+            embedding_api_key=embedding_key,
+            embedding_base_url=embedding_base,
+        )
+        return {"ok": True, "seeded": count, "message": f"Seeded {count} records"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

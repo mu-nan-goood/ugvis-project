@@ -189,22 +189,36 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
         return coords  # 找不到足够的高GVI点
 
     # 从高GVI点中选 2-3 个作为绕行点
-    # 策略：选一个靠近起点的，一个靠近终点的，一个中间的
+    # R7 fix: sort by GVI-projected score (higher GVI + closer to route corridor)
+    # instead of pure distance to start
     waypoints = []
     for p in high_gvi_points:
-        waypoints.append({"lat": p.lat, "lng": p.lng, "gvi": getattr(p, f"gvi_{season}", None)})
+        gvi_val = getattr(p, f"gvi_{season}", None) or 0
+        # Score: normalize GVI (0-100→0-1) + distance penalty (prefer mid-route)
+        dist_to_start = haversine(start["lat"], start["lng"], p.lat, p.lng)
+        dist_to_end = haversine(end["lat"], end["lng"], p.lat, p.lng)
+        route_length_est = haversine(start["lat"], start["lng"], end["lat"], end["lng"])
+        # Prefer points that are between start and end (not too far off-route)
+        detour_ratio = (dist_to_start + dist_to_end) / max(route_length_est, 1)
+        gvi_score = gvi_val / 100.0  # 0~1
+        route_score = max(0, 1.0 - (detour_ratio - 1.0) * 0.5)  # Penalize detours
+        score = gvi_score * 0.6 + route_score * 0.4
+        waypoints.append({"lat": p.lat, "lng": p.lng, "gvi": gvi_val, "score": score})
 
-    # 按到起点的距离排序
-    waypoints.sort(key=lambda p: haversine(start["lat"], start["lng"], p["lat"], p["lng"]))
+    # Sort by projected score (best first)
+    waypoints.sort(key=lambda p: p["score"], reverse=True)
 
-    # 选第1个（靠近起点）、中间某个、最后1个（靠近终点）
-    picks = []
-    if len(waypoints) >= 3:
-        picks = [waypoints[0], waypoints[len(waypoints) // 2], waypoints[-1]]
-    elif len(waypoints) == 2:
-        picks = waypoints
+    # Pick top 2-3 waypoints spread along the route
+    # Sort the top candidates by distance to start for path ordering
+    picks = waypoints[:6]  # Pre-select top 6 by score
+    picks.sort(key=lambda p: haversine(start["lat"], start["lng"], p["lat"], p["lng"]))
+    # From score-sorted candidates, pick spread-out waypoints
+    if len(picks) >= 3:
+        picks = [picks[0], picks[len(picks) // 2], picks[-1]]
+    elif len(picks) == 2:
+        picks = picks[:2]
     else:
-        picks = [waypoints[0]]
+        picks = picks[:1]
 
     # 构建路径：start → waypoints → end
     result = [{"lat": start["lat"], "lng": start["lng"]}]

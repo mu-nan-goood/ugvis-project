@@ -225,6 +225,7 @@ class LLMClient:
         prompt: str,
         system_prompt: str,
         messages: Optional[List[Dict]] = None,
+        tools: Optional[List[Dict]] = None,
     ) -> str:
         """Call OpenAI-compatible API (non-streaming)."""
         url = f"{api_base}/chat/completions"
@@ -236,13 +237,20 @@ class LLMClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ]
-        payload = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000}
+        payload: Dict[str, Any] = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000}
+        if tools:
+            payload["tools"] = tools
 
         try:
             response = await self.client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            # Check for native tool_calls in response
+            msg = data["choices"][0]["message"]
+            if msg.get("tool_calls"):
+                # Return a special marker so the caller can handle it
+                return json.dumps({"__native_tool_calls__": True, "content": msg.get("content", ""), "tool_calls": msg["tool_calls"]})
+            return msg["content"]
         except httpx.HTTPStatusError as e:
             # 连接池污染恢复：400/502 等错误后重建客户端
             if e.response.status_code in (400, 502, 503):
@@ -295,6 +303,7 @@ class LLMClient:
         prompt: str,
         system_prompt: str,
         messages: Optional[List[Dict]] = None,
+        tools: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[str, None]:
         """Stream OpenAI-compatible API."""
         url = f"{api_base}/chat/completions"
@@ -306,7 +315,9 @@ class LLMClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ]
-        payload = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000, "stream": True}
+        payload: Dict[str, Any] = {"model": model, "messages": full_messages, "temperature": 0.7, "max_tokens": 4000, "stream": True}
+        if tools:
+            payload["tools"] = tools
 
         try:
             async with self.client.stream("POST", url, headers=headers, json=payload) as response:
@@ -547,39 +558,32 @@ class LLMClient:
         db=None,
     ) -> AsyncGenerator[str, None]:
         """
-        Multi-turn chat with Function Calling support.
+        Multi-turn chat with native Function Calling support.
+
+        R18 fix: Uses OpenAI-native tool_calls protocol instead of XML tags.
+        R10 fix: Streams the first call instead of blocking with non-streaming.
+        R4 fix: Shows immediate feedback via 'start' event.
 
         SSE event types:
-        - tool_call_start : LLM wants to call a tool
-        - tool_result     : Tool execution result
+        - start          : Processing started
+        - tool_call_start: LLM wants to call a tool
+        - tool_result    : Tool execution result
         - chunk          : LLM text stream chunk
-        - done            : Done, includes structured field
-
-        Protocol: When the LLM generates <function_calls>...<function_calls> tags,
-        we parse, execute tools, inject results into next LLM call context.
+        - done           : Done, includes structured field
         """
         import re as re_module
 
         if not system_prompt:
             system_prompt = self._build_chat_system_prompt(areas, preferences)
 
+        # R18: Build native tool definitions
+        native_tools = None
         if tools:
-            tool_injection = (
-                "\n\nYou have access to the following tools "
-                "(output JSON wrapped in <function_calls> tags):"
-            )
+            tool_defs = []
             for t in tools:
                 f = t.get("function", {})
-                tool_injection += f"\n- {f.get('name')}: {f.get('description')}"
-            tool_injection += (
-                "\n\nIMPORTANT: When you need to query data or perform actions, "
-                "ALWAYS use <function_calls> tags to call a function. "
-                "Do not say 'I will query...' - actually call it. "
-                "Example: <function_calls>"
-                '{"name": "get_weak_areas", "arguments": {"season": "winter", "limit": 10}}'
-                "</function_calls>"
-            )
-            system_prompt = system_prompt + tool_injection
+                tool_defs.append({"type": "function", "function": f})
+            native_tools = tool_defs
 
         messages = list(history) if history else []
         messages.append({"role": "user", "content": message})
@@ -593,107 +597,287 @@ class LLMClient:
             yield json.dumps({"type": "error", "content": "No LLM API Key provided"}, ensure_ascii=False) + "\n\n"
             return
 
-        fc_pattern = re_module.compile(r"<function_calls>\s*(.*?)\s*</function_calls>", re_module.DOTALL)
+        # R4 fix: emit start event for immediate UI feedback
+        yield json.dumps({"type": "start"}, ensure_ascii=False) + "\n\n"
 
-        # First LLM call (non-streaming) to detect function calls
-        first_response_text = None
-        tool_results_context = []
+        # Fallback: if native tools not supported by provider (e.g. Claude), use XML approach
+        # For OpenAI-compatible providers, use native tool_calls
+        use_native_fc = native_tools is not None and provider not in ("claude",)
 
-        if provider == "claude":
-            first_response_text = await self._call_claude(api_base, api_key, model, "", system_prompt, messages)
+        if use_native_fc:
+            # ── Native OpenAI tool_calls path ──
+            async for event in self._native_fc_stream(
+                api_base, api_key, model, system_prompt, messages,
+                native_tools, db, provider
+            ):
+                yield event
         else:
-            first_response_text = await self._call_openai_compatible(api_base, api_key, model, "", system_prompt, messages)
+            # ── Legacy XML-based path (Claude / no tools) ──
+            fc_pattern = re_module.compile(r"<function_calls>\s*(.*?)\s*</function_calls>", re_module.DOTALL)
+            first_response_text = ""
+            fc_detected = False
+            fc_accumulator = ""
+            clean_text_before_fc = ""
 
-        # Check for function calls in response
-        fc_matches = fc_pattern.findall(first_response_text)
-
-        if fc_matches and db is not None:
-            # Has function calls - execute them
-            from services.tools.registry import execute_tool
-
-            # Remove function call tags from text
-            clean_text = fc_pattern.sub("", first_response_text).strip()
-
-            for fc_json in fc_matches:
-                try:
-                    fc_data = json.loads(fc_json)
-                    name = fc_data.get("name", "")
-                    arguments = fc_data.get("arguments", {})
-
-                    # Notify frontend: tool call started
-                    yield json.dumps(
-                        {
-                            "type": "tool_call_start",
-                            "name": name,
-                            "arguments": arguments,
-                            "thinking": clean_text[:200] if clean_text else None,
-                        },
-                        ensure_ascii=False,
-                    ) + "\n\n"
-
-                    result = execute_tool(name, arguments, db)
-
-                    # Notify frontend: tool result
-                    yield json.dumps(
-                        {
-                            "type": "tool_result",
-                            "name": name,
-                            "success": result.success,
-                            "data": result.data,
-                            "error": result.error,
-                        },
-                        ensure_ascii=False,
-                    ) + "\n\n"
-
-                    # Inject tool result into context
-                    tool_results_context.append(
-                        {
-                            "role": "system",
-                            "content": f"[TOOL: {name}] Result: {json.dumps(result.to_dict(), ensure_ascii=False)}",
-                        }
-                    )
-
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Function call JSON parse error: {e}")
-                    continue
-
-            # Second LLM call: inject tool results and generate final response
-            if clean_text:
-                messages.append({"role": "assistant", "content": clean_text})
-            messages.extend(tool_results_context)
-            messages.append({"role": "user", "content": "(Please provide your final answer in Chinese based on the tool execution results above.)"})
-
-            # Stream final response (buffered)
             if provider == "claude":
                 token_gen = self._stream_claude(api_base, api_key, model, "", system_prompt, messages)
             else:
                 token_gen = self._stream_openai_compatible(api_base, api_key, model, "", system_prompt, messages)
-            async for event in self._buffered_stream_chunks(token_gen, self._CHUNK_INTERVAL, self._CHUNK_SIZE):
-                yield event
 
-            parsed = self._parse_structured_response(clean_text)
+            async for token in token_gen:
+                first_response_text += token
+                if "<function_calls>" in first_response_text:
+                    fc_detected = True
+                if fc_detected:
+                    fc_accumulator += token
+                    if "</function_calls>" in fc_accumulator:
+                        break
+                else:
+                    if len(first_response_text) - len(clean_text_before_fc) >= self._CHUNK_SIZE:
+                        chunk_text = first_response_text[len(clean_text_before_fc):]
+                        clean_text_before_fc = first_response_text
+                        yield json.dumps({"type": "chunk", "content": chunk_text}, ensure_ascii=False) + "\n\n"
+
+            if not fc_detected and first_response_text:
+                remaining = first_response_text[len(clean_text_before_fc):]
+                if remaining:
+                    yield json.dumps({"type": "chunk", "content": remaining}, ensure_ascii=False) + "\n\n"
+                parsed = self._parse_structured_response(first_response_text)
+                structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
+                yield json.dumps({"type": "done", "content": first_response_text, "structured": structured}, ensure_ascii=False) + "\n\n"
+                return
+
+            fc_matches = fc_pattern.findall(first_response_text)
+            if fc_matches and db is not None:
+                tool_results_context = []
+                from services.tools.registry import execute_tool
+                clean_text = fc_pattern.sub("", first_response_text).strip()
+                for fc_json in fc_matches:
+                    try:
+                        fc_data = json.loads(fc_json)
+                        name = fc_data.get("name", "")
+                        arguments = fc_data.get("arguments", {})
+                        yield json.dumps({"type": "tool_call_start", "name": name, "arguments": arguments, "thinking": clean_text[:200] if clean_text else None}, ensure_ascii=False) + "\n\n"
+                        result = execute_tool(name, arguments, db)
+                        yield json.dumps({"type": "tool_result", "name": name, "success": result.success, "data": result.data, "error": result.error}, ensure_ascii=False) + "\n\n"
+                        tool_results_context.append({"role": "system", "content": f"[TOOL: {name}] Result: {json.dumps(result.to_dict(), ensure_ascii=False)}"})
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Function call JSON parse error: {e}")
+                        continue
+                if clean_text:
+                    messages.append({"role": "assistant", "content": clean_text})
+                messages.extend(tool_results_context)
+                messages.append({"role": "user", "content": "(Please provide your final answer in Chinese based on the tool execution results above.)"})
+                if provider == "claude":
+                    token_gen = self._stream_claude(api_base, api_key, model, "", system_prompt, messages)
+                else:
+                    token_gen = self._stream_openai_compatible(api_base, api_key, model, "", system_prompt, messages)
+                async for event in self._buffered_stream_chunks(token_gen, self._CHUNK_INTERVAL, self._CHUNK_SIZE):
+                    yield event
+                parsed = self._parse_structured_response(clean_text)
+                structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
+                yield json.dumps({"type": "done", "content": clean_text, "structured": structured}, ensure_ascii=False) + "\n\n"
+            else:
+                text_to_yield = first_response_text or ""
+                if db is None and fc_matches:
+                    text_to_yield = fc_pattern.sub("", text_to_yield).strip()
+                    if not text_to_yield:
+                        text_to_yield = "（工具调用暂不可用，请稍后重试）"
+                if text_to_yield:
+                    for i in range(0, len(text_to_yield), self._CHUNK_SIZE):
+                        chunk = text_to_yield[i:i + self._CHUNK_SIZE]
+                        yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
+                parsed = self._parse_structured_response(text_to_yield)
+                structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
+                yield json.dumps({"type": "done", "content": text_to_yield, "structured": structured}, ensure_ascii=False) + "\n\n"
+
+    async def _native_fc_stream(
+        self,
+        api_base: str,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        messages: List[Dict],
+        native_tools: List[Dict],
+        db,
+        provider: str,
+    ) -> AsyncGenerator[str, None]:
+        """Stream with native OpenAI tool_calls protocol."""
+        # First call with tools parameter
+        url = f"{api_base}/chat/completions"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        payload = {
+            "model": model,
+            "messages": full_messages,
+            "temperature": 0.7,
+            "max_tokens": 4000,
+            "stream": True,
+            "tools": native_tools,
+        }
+
+        # Accumulate streaming response
+        response_content = ""
+        tool_calls_acc: Dict[int, Dict] = {}  # index -> {id, name, arguments}
+        has_tool_calls = False
+
+        try:
+            async with self.client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+
+                        # Text content
+                        content = delta.get("content", "")
+                        if content:
+                            response_content += content
+                            # Buffered yield
+                            yield json.dumps({"type": "chunk", "content": content}, ensure_ascii=False) + "\n\n"
+
+                        # Tool calls (streamed incrementally)
+                        tc_deltas = delta.get("tool_calls")
+                        if tc_deltas:
+                            has_tool_calls = True
+                            for tc_delta in tc_deltas:
+                                idx = tc_delta.get("index", 0)
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {
+                                        "id": tc_delta.get("id", ""),
+                                        "name": "",
+                                        "arguments": "",
+                                    }
+                                if tc_delta.get("id"):
+                                    tool_calls_acc[idx]["id"] = tc_delta["id"]
+                                fn = tc_delta.get("function", {})
+                                if fn.get("name"):
+                                    tool_calls_acc[idx]["name"] = fn["name"]
+                                if fn.get("arguments"):
+                                    tool_calls_acc[idx]["arguments"] += fn["arguments"]
+                    except json.JSONDecodeError:
+                        continue
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 502, 503):
+                logger.warning(f"Native FC stream HTTP {e.response.status_code}, resetting client")
+                await self.close()
+            yield json.dumps({"type": "error", "content": f"LLM API error: {e.response.status_code}"}, ensure_ascii=False) + "\n\n"
+            return
+
+        if not has_tool_calls:
+            # No tool calls — just text response
+            parsed = self._parse_structured_response(response_content)
             structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
-            yield json.dumps({"type": "done", "content": clean_text, "structured": structured}, ensure_ascii=False) + "\n\n"
+            yield json.dumps({"type": "done", "content": response_content, "structured": structured}, ensure_ascii=False) + "\n\n"
+            return
 
-        else:
-            # No function calls (or db is None) — yield the already-fetched response directly.
-            # R3 fix: If db was None but FC tags exist, clean them from output
-            text_to_yield = first_response_text or ""
-            if db is None and fc_matches:
-                # Strip <function_calls> tags since we can't execute them without db
-                text_to_yield = fc_pattern.sub("", text_to_yield).strip()
-                if not text_to_yield:
-                    text_to_yield = "（工具调用暂不可用，请稍后重试）"
+        # Execute tool calls
+        if db is None:
+            yield json.dumps({"type": "error", "content": "Tool execution not available"}, ensure_ascii=False) + "\n\n"
+            return
 
-            if text_to_yield:
-                # Buffer into ~20-char chunks for performance
-                for i in range(0, len(text_to_yield), self._CHUNK_SIZE):
-                    chunk = text_to_yield[i:i + self._CHUNK_SIZE]
-                    yield json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False) + "\n\n"
+        from services.tools.registry import execute_tool
 
-            parsed = self._parse_structured_response(text_to_yield)
-            structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
-            yield json.dumps({"type": "done", "content": text_to_yield, "structured": structured}, ensure_ascii=False) + "\n\n"
+        # Build assistant message with tool_calls for context
+        assistant_msg = {"role": "assistant", "content": response_content or None, "tool_calls": []}
+        tool_results_msgs = []
+
+        for idx in sorted(tool_calls_acc.keys()):
+            tc = tool_calls_acc[idx]
+            tc_entry = {
+                "id": tc["id"],
+                "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["arguments"]},
+            }
+            assistant_msg["tool_calls"].append(tc_entry)
+
+            # Parse arguments
+            try:
+                arguments = json.loads(tc["arguments"])
+            except json.JSONDecodeError:
+                arguments = {}
+
+            # Notify frontend
+            yield json.dumps(
+                {"type": "tool_call_start", "name": tc["name"], "arguments": arguments},
+                ensure_ascii=False,
+            ) + "\n\n"
+
+            # Execute
+            result = execute_tool(tc["name"], arguments, db)
+
+            yield json.dumps(
+                {"type": "tool_result", "name": tc["name"], "success": result.success, "data": result.data, "error": result.error},
+                ensure_ascii=False,
+            ) + "\n\n"
+
+            # Add tool result message
+            tool_results_msgs.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": json.dumps(result.to_dict(), ensure_ascii=False),
+            })
+
+        # Second call: inject tool results
+        messages.append(assistant_msg)
+        messages.extend(tool_results_msgs)
+
+        full_messages_2 = [{"role": "system", "content": system_prompt}] + messages
+        payload_2 = {
+            "model": model,
+            "messages": full_messages_2,
+            "temperature": 0.7,
+            "max_tokens": 4000,
+            "stream": True,
+        }
+
+        final_content = ""
+        try:
+            async with self.client.stream("POST", url, headers=headers, json=payload_2) as response:
+                response.raise_for_status()
+                token_gen = (line for line in self._iter_stream_lines(response))
+                async for event in self._buffered_stream_chunks(token_gen, self._CHUNK_INTERVAL, self._CHUNK_SIZE):
+                    # Extract content from buffered chunk events
+                    try:
+                        evt = json.loads(event.strip().rstrip("\n\n").replace("data: ", ""))
+                        if evt.get("type") == "chunk":
+                            final_content += evt.get("content", "")
+                    except Exception:
+                        pass
+                    yield event
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 502, 503):
+                await self.close()
+            yield json.dumps({"type": "error", "content": f"LLM API error in second call: {e.response.status_code}"}, ensure_ascii=False) + "\n\n"
+            return
+
+        parsed = self._parse_structured_response(final_content)
+        structured = {k: v for k, v in parsed.items() if k != "raw_response" and v is not None}
+        yield json.dumps({"type": "done", "content": final_content, "structured": structured}, ensure_ascii=False) + "\n\n"
+
+    async def _iter_stream_lines(self, response):
+        """Iterate SSE lines from an httpx stream response, yielding text tokens."""
+        async for line in response.aiter_lines():
+            line = line.strip()
+            if not line or not line.startswith("data: "):
+                continue
+            data_str = line[6:]
+            if data_str == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data_str)
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    yield content
+            except json.JSONDecodeError:
+                continue
 
 
 # Global client instance
