@@ -16,7 +16,7 @@
 | 季节分析 | 变异系数(CV)热力图、稳定性分级、五数概括 |
 | AI 改造建议 | 多 LLM 支持、SSE 流式输出、多轮对话、Function Calling |
 | 专家面板 | 4 专家（城市规划/生态学/数据分析/经济评估）并行 + Moderator 投票融合 |
-| RAG 知识库 | ChromaDB + Nomic Embedding，正向反馈自动索引，30+ 条种子建议 |
+| RAG 知识库 | ChromaDB + Nomic Embedding，正向反馈自动索引，50+ 条种子建议（含南京绿化精选） |
 | 地图交互闭环 | 薄弱区域 ↔ 地图双向跳转、路线可视化、GVI 剖面图 |
 | 建议质量反馈 | 👍👎 评分 + 文字评论 + 统计 + RAG 自动索引 |
 | 数据管理 | 采样点查询、筛选、CSV/GeoJSON 导入导出、热力图联动 |
@@ -155,7 +155,7 @@ docker-compose up -d
   - `get_point_detail` — 获取点位详细信息
   - `get_prompt_templates` — 获取 Prompt 模板列表
 - **Expert Panel**：4 专家并行分析 + Moderator 投票融合，SSE 实时推送
-- **RAG 知识库**：ChromaDB 存储历史正向建议，检索增强新建议质量
+- **RAG 知识库**：ChromaDB 存储历史正向建议，50+ 条南京绿化精选种子数据，检索增强新建议质量
 - **地图交互闭环**：AI 建议点位直接在地图高亮 + 路线规划 + GVI 剖面图
 - **建议质量反馈**：👍👎 评分 + 文字评论，正向反馈自动索引到 RAG 知识库
 - **5 种 Prompt 模板**：按场景动态切换（薄弱区域/路线规划/季节分析/预算约束/综合规划）
@@ -235,6 +235,21 @@ docker-compose up -d
 ---
 
 ## 最近更新
+
+### 2026-05-23 — 12项已知限制全部修复
+
+- **R18 Function Calling 原生化**: 从 XML 标签解析重写为 OpenAI 原生 `tool_calls` API（Claude 保留 XML 回退），消除二次解析
+- **R5 季节分析异步化**: 201K 点全量计算从同步阻塞改为 `async` + `asyncio.to_thread` 后台计算
+- **R6 local_r2 估算升级**: 从文献硬系数改为 NDVI 方差局部加权估算
+- **R7 替代路线排序优化**: 从按距离排序改为 GVI 投影得分排序（0.6×GVI + 0.4×路线适配度）
+- **R16 SSE 解析重构**: 提取 `parseSSEResponse<T>()` 通用解析器，消除三处重复代码
+- **R2 线程安全修复**: feedback.py daemon 线程改为 `asyncio.run_coroutine_threadsafe` 调度到主循环
+- **R4 FC 流式化**: 首轮调用改为流式输出 + `start` SSE 事件提供 UI 反馈
+- **R12 自定义事件统一**: AIChatDrawer 改为监听 `CustomEvent('ugvis-ask-ai')`
+- **R15 地图动画修复**: `setView` 禁用动画消除与拖拽冲突
+- **R2-tech SQLite UDF**: 注册 Python 端 `stddev`/`stddev_samp` 聚合函数
+- **R3-tech 知识库扩充**: 20 条南京城市绿化精选建议 + `/seed` 管理端点，ChromaDB 从 33 条扩至 50+
+- **类型补全**: `ChatStreamEvent` 增加 `start` / `done` 变体
 
 ### 2026-05-22 — 前端渲染优化 & API 修复
 
