@@ -25,7 +25,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'echarts-vendor': ['echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers'],
+          'echarts-core': ['echarts/core', 'echarts/renderers', 'echarts/components'],
+          'echarts-charts': ['echarts/charts'],
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'leaflet-vendor': ['leaflet', 'react-leaflet'],
           'markdown-vendor': ['react-markdown', 'remark-gfm'],

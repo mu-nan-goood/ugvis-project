@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     init_admin_password: Optional[str] = None
 
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 
     def get_api_key_for_provider(self, provider: str) -> Optional[str]:
         """根据 provider 返回服务端存储的 API Key"""

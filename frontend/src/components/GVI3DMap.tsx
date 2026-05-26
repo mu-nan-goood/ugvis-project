@@ -85,6 +85,9 @@ export default function GVI3DMap({
   const pointByIdRef = useRef<Map<number, MapPoint>>(new Map())
   const [hovered, setHovered] = useState<HoveredPoint | null>(null)
 
+  // Cesium ion Token（可选，无 Token 用 OSM 影像）
+  const cesiumToken = import.meta.env.VITE_CESIUM_TOKEN as string | undefined
+
   // 性能：点数限制
   const displayPoints = displayMode === 'heatmap'
     ? points.slice(0, 15000)
@@ -99,11 +102,25 @@ export default function GVI3DMap({
   useEffect(() => {
     if (!containerRef.current || viewerRef.current) return
 
-    Cesium.Ion.defaultAccessToken =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiMGRjM2QxYi1iZGYyLTRlNjgtOWExYy1lMWIwY2U5ZmQxNjQiLCJpZCI6MjU5LCJpYXQiOjE3MjYwMTM3NTJ9.c3KNqe0mXZbG7eRjJBfBz3PzCq1F0c3pWB0qR1XN5wA'
+    // 使用环境变量中的 Cesium ion Token（可选，无 Token 也能运行）
+    if (cesiumToken) {
+      Cesium.Ion.defaultAccessToken = cesiumToken
+    }
 
     const viewer = new Cesium.Viewer(containerRef.current, {
-      terrain: Cesium.Terrain.fromWorldTerrain(),
+      // 无 ion Token 时使用 OpenStreetMap 影像，无需任何账号
+      baseLayer: cesiumToken
+        ? Cesium.ImageryLayer.fromProviderAsync(
+            Cesium.IonImageryProvider.fromAssetId(2),
+          )
+        : new Cesium.ImageryLayer(
+            new Cesium.OpenStreetMapImageryProvider({
+              url: 'https://tile.openstreetmap.org/',
+            }),
+          ),
+      terrain: cesiumToken
+        ? Cesium.Terrain.fromWorldTerrain()
+        : undefined,
       timeline: false,
       animation: false,
       baseLayerPicker: false,
@@ -116,10 +133,12 @@ export default function GVI3DMap({
       selectionIndicator: false,
     })
 
-    // OSM Buildings 3D Tiles
-    Cesium.createOsmBuildingsAsync().then((tileset) => {
-      viewer.scene.primitives.add(tileset)
-    }).catch(() => {})
+    // OSM Buildings 3D Tiles（需要 ion Token）
+    if (cesiumToken) {
+      Cesium.createOsmBuildingsAsync().then((tileset) => {
+        viewer.scene.primitives.add(tileset)
+      }).catch(() => {})
+    }
 
     // 飞到南京
     viewer.camera.flyTo({
@@ -327,7 +346,7 @@ export default function GVI3DMap({
           </div>
         )}
         <div className="mt-2 pt-2 border-t text-gray-400">
-          3D建筑: OSM · 地形: Cesium World
+          3D建筑: {cesiumToken ? 'OSM · 地形: Cesium' : 'OSM影像(无Token)'}
         </div>
       </div>
     </div>

@@ -88,11 +88,14 @@ export default function DataManagement() {
 
   function handleExportCSV() {
     // Server-side CSV export — exports ALL filtered data, not just current page
+    if (roadTypeFilter === 'all') {
+      setError('导出数据量过大，请先选择道路类型筛选条件')
+      return
+    }
     const params = new URLSearchParams()
-    if (roadTypeFilter !== 'all') params.set('road_type', roadTypeFilter)
+    params.set('road_type', roadTypeFilter)
     if (searchTerm) params.set('search', searchTerm)
-    const qs = params.toString()
-    const url = `/api/points/export/csv${qs ? '?' + qs : ''}`
+    const url = `/api/points/export/csv?${params.toString()}`
     const a = document.createElement('a')
     a.href = url
     a.download = `ugvis_data_${new Date().toISOString().slice(0, 10)}.csv`
@@ -101,10 +104,13 @@ export default function DataManagement() {
 
   function handleExportGeoJSON() {
     // Server-side GeoJSON export (OGC RFC 7946)
+    if (roadTypeFilter === 'all') {
+      setError('导出数据量过大，请先选择道路类型筛选条件')
+      return
+    }
     const params = new URLSearchParams()
-    if (roadTypeFilter !== 'all') params.set('road_type', roadTypeFilter)
-    const qs = params.toString()
-    const url = `/api/points/export/geojson${qs ? '?' + qs : ''}`
+    params.set('road_type', roadTypeFilter)
+    const url = `/api/points/export/geojson?${params.toString()}`
     const a = document.createElement('a')
     a.href = url
     a.download = `ugvis_points_${new Date().toISOString().slice(0, 10)}.geojson`
