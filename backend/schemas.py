@@ -90,6 +90,7 @@ class CVPoint(BaseModel):
     cv: float
     mean_gvi: float
     road_type: Optional[str] = None
+    summer_winter_diff: Optional[float] = None
 
 class StabilityStats(BaseModel):
     stable: int

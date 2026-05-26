@@ -191,6 +191,14 @@ export default function GVIMap({
 
     if (displayMode !== 'heatmap') return
 
+    // Guard: canvas must have non-zero dimensions before heatLayer can draw
+    const container = leafletMap.current.getContainer()
+    if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+      // Container not yet laid out — retry after next paint
+      requestAnimationFrame(() => renderHeatmap())
+      return
+    }
+
     const heatData: [number, number, number][] = []
     points.forEach((point) => {
       if (point.gvi == null) return

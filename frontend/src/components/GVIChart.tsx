@@ -1,22 +1,24 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, ScatterChart, BoxplotChart } from 'echarts/charts'
+import { BarChart, ScatterChart, BoxplotChart, LineChart, PieChart, RadarChart } from 'echarts/charts'
 import {
   TitleComponent,
   TooltipComponent,
   GridComponent,
   VisualMapComponent,
   LegendComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ComposeOption } from 'echarts/core'
-import type { BarSeriesOption, ScatterSeriesOption, BoxplotSeriesOption } from 'echarts/charts'
+import type { BarSeriesOption, ScatterSeriesOption, BoxplotSeriesOption, LineSeriesOption, PieSeriesOption, RadarSeriesOption } from 'echarts/charts'
 import type {
   TitleComponentOption,
   TooltipComponentOption,
   GridComponentOption,
   VisualMapComponentOption,
   LegendComponentOption,
+  ToolboxComponentOption,
 } from 'echarts/components'
 
 // Combined option type for our usage — export for pages to use
@@ -24,11 +26,15 @@ export type EChartsOption = ComposeOption<
   | BarSeriesOption
   | ScatterSeriesOption
   | BoxplotSeriesOption
+  | LineSeriesOption
+  | PieSeriesOption
+  | RadarSeriesOption
   | TitleComponentOption
   | TooltipComponentOption
   | GridComponentOption
   | VisualMapComponentOption
   | LegendComponentOption
+  | ToolboxComponentOption
 >
 
 // Register only the components we actually use
@@ -36,11 +42,15 @@ echarts.use([
   BarChart,
   ScatterChart,
   BoxplotChart,
+  LineChart,
+  PieChart,
+  RadarChart,
   TitleComponent,
   TooltipComponent,
   GridComponent,
   VisualMapComponent,
   LegendComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 

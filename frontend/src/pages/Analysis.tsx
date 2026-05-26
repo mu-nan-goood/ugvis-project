@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import GVIChart from '../components/GVIChart'
+import GVIMap from '../components/GVIMap'
 import type { EChartsOption } from '../components/GVIChart'
 import { fetchAnalysisModels } from '../utils/api'
+import type { MapPoint } from '../types'
 
 interface ModelMetrics {
   model_type: string
@@ -25,6 +27,7 @@ const MODEL_LABELS: Record<string, string> = {
   mgwr: '多尺度GWR (MGWR)',
 }
 
+
 export default function Analysis() {
   const [activeModel, setActiveModel] = useState<'lr' | 'gwr' | 'mgwr'>('mgwr')
   const [models, setModels] = useState<ModelMetrics[]>([])
@@ -44,6 +47,24 @@ export default function Analysis() {
         setLoading(false)
       })
   }, [])
+
+  // Local R2 points → MapPoint for GVIMap heatmap
+  const localR2MapPoints: MapPoint[] = useMemo(() => {
+    return localR2Points.map((p, i) => ({
+      id: i,
+      lat: p.lat,
+      lng: p.lng,
+      gvi: p.local_r2, // reuse gvi field for local_r2 value (drives color)
+      ndvi: null,
+      road_type: null,
+    }))
+  }, [localR2Points])
+
+  // Best model recommendation
+  const bestModel = useMemo(() => {
+    if (models.length === 0) return null
+    return models.reduce((best, m) => (m.r2 > best.r2 ? m : best), models[0])
+  }, [models])
 
   if (loading) {
     return (
@@ -68,6 +89,11 @@ export default function Analysis() {
     title: { text: '模型性能对比', left: 'center' },
     tooltip: { trigger: 'axis' },
     legend: { data: ['R²', 'RMSE'], bottom: 0 },
+    toolbox: {
+      feature: { saveAsImage: { title: '导出' } },
+      right: 10,
+      top: 0,
+    },
     xAxis: {
       type: 'category',
       data: modelLabels,
@@ -95,49 +121,55 @@ export default function Analysis() {
     ],
   }
 
-  // 局部 R² 散点图（采样显示）
-  const sampledR2 = localR2Points.length > 2000
-    ? localR2Points.filter((_, i) => i % Math.ceil(localR2Points.length / 2000) === 0)
-    : localR2Points
-
-  // F7 fix: compute axis range from data instead of hardcoding Nanjing coordinates
-  const lngs = sampledR2.map(p => p.lng)
-  const lats = sampledR2.map(p => p.lat)
-  const lngMin = lngs.length ? Math.floor(Math.min(...lngs) * 10) / 10 : 0
-  const lngMax = lngs.length ? Math.ceil(Math.max(...lngs) * 10) / 10 : 1
-  const latMin = lats.length ? Math.floor(Math.min(...lats) * 10) / 10 : 0
-  const latMax = lats.length ? Math.ceil(Math.max(...lats) * 10) / 10 : 1
-
-  const localR2Option: EChartsOption = {
-    title: { text: `${MODEL_LABELS[activeModel]} — 局部R²分布`, left: 'center' },
-    tooltip: {
-      formatter: (params: unknown) => {
-        const d = (params as { data?: unknown[] }).data
-        if (!d || d.length < 3) return ''
-        return `R²: ${(d[2] as number).toFixed(3)}<br/>经度: ${(d[0] as number).toFixed(4)}<br/>纬度: ${(d[1] as number).toFixed(4)}`
-      },
+  // 雷达图 — 多维度模型对比
+  const radarOption: EChartsOption = {
+    title: { text: '多维度性能雷达图', left: 'center' },
+    tooltip: {},
+    toolbox: {
+      feature: { saveAsImage: { title: '导出' } },
+      right: 10,
+      top: 0,
     },
-    visualMap: {
-      min: 0,
-      max: 1,
-      calculable: true,
-      inRange: { color: ['#fee2e2', '#fbbf24', '#22c55e'] },
+    legend: {
+      data: models.map((m) => MODEL_LABELS[m.model_type] || m.model_type),
+      bottom: 0,
     },
-    xAxis: { type: 'value', min: lngMin, max: lngMax, name: '经度' },
-    yAxis: { type: 'value', min: latMin, max: latMax, name: '纬度' },
+    radar: {
+      indicator: [
+        { name: 'R²', max: 1 },
+        { name: '调整R²', max: 1 },
+        { name: 'RMSE(逆)', max: 1 },
+        { name: 'AICc(逆)', max: 1 },
+      ],
+      shape: 'polygon',
+      splitNumber: 5,
+    },
     series: [
       {
-        type: 'scatter',
-        data: sampledR2.map((p) => [p.lng, p.lat, p.local_r2]),
-        symbolSize: 7,
-        itemStyle: { opacity: 0.7 },
+        type: 'radar',
+        data: models.map((m) => ({
+          value: [
+            m.r2,
+            m.adj_r2,
+            1 - Math.min(m.rmse / 30, 1), // normalize: lower RMSE → higher score
+            1 - Math.min(m.aicc / 10000, 1), // normalize: lower AICc → higher score
+          ],
+          name: MODEL_LABELS[m.model_type] || m.model_type,
+        })),
       },
     ],
   }
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">空间分析</h2>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">空间分析</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            对比不同空间回归模型的拟合效果，探索局部拟合度的空间分布特征
+          </p>
+        </div>
+      </div>
 
       {/* Model Selector */}
       <div className="flex gap-2">
@@ -156,15 +188,59 @@ export default function Analysis() {
         ))}
       </div>
 
-      {/* Model Comparison */}
-      <div className="card">
-        <GVIChart option={modelComparisonOption} className="h-80" />
+      {/* Best Model Recommendation */}
+      {bestModel && (
+        <div className="card bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🏆</span>
+            <div>
+              <p className="font-semibold text-green-800">
+                推荐模型：{MODEL_LABELS[bestModel.model_type]}
+              </p>
+              <p className="text-sm text-green-600">
+                R² = {bestModel.r2.toFixed(3)}，AICc = {bestModel.aicc.toFixed(1)}
+                {bestModel.model_type === 'mgwr'
+                  ? ' — 多尺度建模更精确地捕捉空间异质性'
+                  : bestModel.model_type === 'gwr'
+                  ? ' — 地理加权回归考虑了空间非平稳性'
+                  : ' — 线性回归提供全局基准参考'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Model Comparison Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card">
+          <GVIChart option={modelComparisonOption} className="h-80" />
+        </div>
+        <div className="card">
+          <GVIChart option={radarOption} className="h-80" />
+        </div>
       </div>
 
-      {/* Local R2 Map */}
+      {/* Local R2 Map — heatmap on real map */}
       <div className="card">
-        <h3 className="text-lg font-semibold mb-4">局部模型拟合度 (Local R²)</h3>
-        <GVIChart option={localR2Option} className="h-96" />
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">
+            局部模型拟合度 (Local R²) 空间分布 — {MODEL_LABELS[activeModel]}
+          </h3>
+          <span className="text-sm text-gray-500">
+            {localR2MapPoints.length.toLocaleString()} 个采样点 · 绿(R²高) → 红(R²低)
+          </span>
+        </div>
+        <GVIMap
+          points={localR2MapPoints}
+          season="spring"
+          displayMode="heatmap"
+          className="h-[500px] rounded-lg"
+        />
+        <p className="text-xs text-gray-400 mt-2">
+          颜色越绿表示模型在该区域的拟合度越高，颜色越红表示拟合度越低。
+          {activeModel === 'lr' && '线性回归为全局模型，局部R²反映各点残差与NDVI偏差的综合评估。'}
+          {activeModel !== 'lr' && 'GWR/MGWR的局部R²基于NDVI方差加权估算，精确值需独立运算。'}
+        </p>
       </div>
 
       {/* Coefficient Table */}
@@ -185,16 +261,16 @@ export default function Analysis() {
             </thead>
             <tbody>
               {models.map((m) => {
-                const isMGWR = m.model_type === 'mgwr'
+                const isBest = bestModel?.model_type === m.model_type
                 return (
                   <tr
                     key={m.model_type}
-                    className={`border-b ${isMGWR ? 'bg-primary-50' : ''}`}
+                    className={`border-b ${isBest ? 'bg-primary-50' : ''}`}
                   >
-                    <td className={`py-3 px-4 font-medium ${isMGWR ? 'text-primary-700' : ''}`}>
-                      {MODEL_LABELS[m.model_type] || m.model_type}
+                    <td className={`py-3 px-4 font-medium ${isBest ? 'text-primary-700' : ''}`}>
+                      {isBest && '🏆 '}{MODEL_LABELS[m.model_type] || m.model_type}
                     </td>
-                    <td className={`text-right py-3 px-4 ${isMGWR ? 'font-bold' : ''}`}>
+                    <td className={`text-right py-3 px-4 ${isBest ? 'font-bold' : ''}`}>
                       {m.r2.toFixed(3)}
                     </td>
                     <td className="text-right py-3 px-4">{m.adj_r2.toFixed(3)}</td>

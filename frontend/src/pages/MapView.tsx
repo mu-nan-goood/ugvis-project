@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import GVIMap, { type DisplayMode, type BaseMap } from '../components/GVIMap'
+const GVI3DMap = lazy(() => import('../components/GVI3DMap'))
 import RouteAnalysisPanel from '../components/RouteAnalysisPanel'
 import StreetViewPanel from '../components/StreetViewPanel'
 import type { MapPoint, Season, RouteCoord } from '../types'
@@ -35,6 +36,9 @@ export default function MapView() {
 
   // ── 底图切换 ────────────────────────────────────────
   const [baseMap, setBaseMap] = useState<BaseMap>('gaode')
+
+  // ── 2D/3D 视图切换 ────────────────────────────────────
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d')
 
   // ── 路线规划模式 ─────────────────────────────────────
   const [planningMode, setPlanningMode] = useState(false)
@@ -161,7 +165,7 @@ export default function MapView() {
                   : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
               }`}
             >
-              🔵 散点
+              {viewMode === '3d' ? '🔵 3D散点' : '🔵 散点'}
             </button>
             <button
               onClick={() => setDisplayMode('heatmap')}
@@ -171,7 +175,7 @@ export default function MapView() {
                   : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
               }`}
             >
-              🌡️ 热力图
+              {viewMode === '3d' ? '🏗️ 热力柱' : '🌡️ 热力图'}
             </button>
           </div>
 
@@ -195,6 +199,31 @@ export default function MapView() {
                 {label}
               </button>
             ))}
+          </div>
+
+          {/* 2D/3D 视图切换 */}
+          <div className='flex items-center gap-1.5'>
+            <span className='text-xs text-gray-500'>维度:</span>
+            <button
+              onClick={() => setViewMode('2d')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                viewMode === '2d'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              🗺️ 2D
+            </button>
+            <button
+              onClick={() => setViewMode('3d')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                viewMode === '3d'
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              🌐 3D
+            </button>
           </div>
 
           {/* 道路类型过滤 */}
@@ -263,7 +292,7 @@ export default function MapView() {
             <div className="flex items-center justify-center h-full">
               <p className="text-red-500">加载失败: {error}</p>
             </div>
-          ) : (
+          ) : viewMode === '2d' ? (
             <GVIMap
               points={points}
               season={season}
@@ -285,6 +314,22 @@ export default function MapView() {
                 )
               }}
             />
+          ) : (
+            <Suspense fallback={(
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">加载3D引擎...</p>
+              </div>
+            )}>
+              <GVI3DMap
+                points={points}
+                season={season}
+                className="h-full"
+                highlightIds={highlightIds}
+                initialCenter={initCenter}
+                displayMode={displayMode}
+                onPointClick={(point) => setStreetViewPoint(point)}
+              />
+            </Suspense>
           )}
         </div>
 
