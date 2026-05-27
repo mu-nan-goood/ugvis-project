@@ -238,6 +238,7 @@ export default function Analysis() {
           points={localR2MapPoints}
           season="spring"
           displayMode="heatmap"
+          preferCanvas={false}
           valueRange={[0, 1]}
           colorScheme="r2"
           className="h-[500px] w-full rounded-lg z-0"
