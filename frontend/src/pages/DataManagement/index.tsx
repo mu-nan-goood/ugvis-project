@@ -203,6 +203,7 @@ export default function DataManagement() {
                 points={mapPoints}
                 season={season}
                 displayMode="heatmap"
+                preferCanvas={false}
                 highlightIds={highlightIds}
                 initialCenter={mapCenter}
                 className="rounded-lg"
