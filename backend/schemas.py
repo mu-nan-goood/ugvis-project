@@ -121,6 +121,7 @@ class LocalR2Point(BaseModel):
     lat: float
     lng: float
     local_r2: float
+    model_type: str | None = None
 
 class AnalysisResponse(BaseModel):
     models: List[ModelMetrics]

@@ -177,6 +177,7 @@ export default function GVI3DMap({
       pointCollectionRef.current = null
       cylinderCollectionRef.current = null
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- cesiumToken must NOT trigger viewer rebuild
   }, [initialCenter])
 
   // ─── 渲染采样点 / 热力柱体 ─────────────────────────

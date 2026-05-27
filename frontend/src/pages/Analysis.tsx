@@ -19,6 +19,7 @@ interface LocalR2Point {
   lat: number
   lng: number
   local_r2: number
+  model_type?: string | null
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -48,9 +49,12 @@ export default function Analysis() {
       })
   }, [])
 
-  // Local R2 points → MapPoint for GVIMap heatmap
+  // Local R2 points → MapPoint for GVIMap heatmap, filtered by activeModel
   const localR2MapPoints: MapPoint[] = useMemo(() => {
-    return localR2Points.map((p, i) => ({
+    const filtered = localR2Points.filter(
+      (p) => !p.model_type || p.model_type === activeModel
+    )
+    return filtered.map((p, i) => ({
       id: i,
       lat: p.lat,
       lng: p.lng,
@@ -58,7 +62,7 @@ export default function Analysis() {
       ndvi: null,
       road_type: null,
     }))
-  }, [localR2Points])
+  }, [localR2Points, activeModel])
 
   // Best model recommendation
   const bestModel = useMemo(() => {
@@ -234,7 +238,9 @@ export default function Analysis() {
           points={localR2MapPoints}
           season="spring"
           displayMode="heatmap"
-          className="h-[500px] rounded-lg"
+          valueRange={[0, 1]}
+          colorScheme="r2"
+          className="h-[500px] w-full rounded-lg z-0"
         />
         <p className="text-xs text-gray-400 mt-2">
           颜色越绿表示模型在该区域的拟合度越高，颜色越红表示拟合度越低。

@@ -44,8 +44,10 @@ interface StabilityStats {
   unstable_pct: number
 }
 
+type MetricKey = 'gvi' | 'cv' | 'stability' | 'diff'
+
 export default function SeasonalAnalysis() {
-  const [metric, setMetric] = useState<'gvi' | 'cv' | 'stability' | 'diff'>('gvi')
+  const [metric, setMetric] = useState<MetricKey>('gvi')
   const [boxplot, setBoxplot] = useState<BoxplotData[]>([])
   const [summary, setSummary] = useState<SeasonalSummary[]>([])
   const [cvPoints, setCvPoints] = useState<CVPoint[]>([])
@@ -77,8 +79,8 @@ export default function SeasonalAnalysis() {
       id: i,
       lat: p.lat,
       lng: p.lng,
-      gvi: p.cv,        // gvi field used for CV value (drives color)
-      ndvi: p.mean_gvi,  // ndvi field used for mean GVI
+      gvi: p.cv,
+      ndvi: p.mean_gvi,
       road_type: p.road_type,
     }))
   }, [cvPoints])
@@ -89,8 +91,6 @@ export default function SeasonalAnalysis() {
       ? cvPoints.filter((_, i) => i % Math.ceil(cvPoints.length / 2000) === 0)
       : cvPoints
     return sampled.map((p, i) => {
-      // Map stability zones to GVI-like values for color gradient:
-      // stable (CV<25) → high value (green), moderate (25-50) → mid, unstable (>50) → low (red)
       const stabilityScore = p.cv < 25 ? 80 + (25 - p.cv) : p.cv < 50 ? 40 + (50 - p.cv) * 1.6 : Math.max(0, 40 - p.cv)
       return {
         id: i,
@@ -113,7 +113,7 @@ export default function SeasonalAnalysis() {
       id: i,
       lat: p.lat,
       lng: p.lng,
-      gvi: p.summer_winter_diff, // positive = summer higher, negative = winter higher
+      gvi: p.summer_winter_diff,
       ndvi: p.mean_gvi,
       road_type: p.road_type,
     }))
@@ -358,6 +358,9 @@ export default function SeasonalAnalysis() {
               points={cvMapPoints}
               season="spring"
               displayMode="heatmap"
+              valueRange={[0, 100]}
+              colorScheme="cv"
+              preferCanvas={false}
               className="h-[500px] rounded-lg"
             />
             <p className="text-xs text-gray-400 mt-2">
@@ -390,12 +393,11 @@ export default function SeasonalAnalysis() {
               <p className="text-sm mt-2">CV &gt; 50%，冬季GVI急剧下降</p>
             </div>
           </div>
-          {/* Pie Chart */}
+          {/* Pie Chart + Map */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card">
               <GVIChart option={stabilityPieOption} className="h-80" />
             </div>
-            {/* Stability Map */}
             <div className="card">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold">稳定性分区地图</h3>
@@ -405,6 +407,9 @@ export default function SeasonalAnalysis() {
                 points={stabilityMapPoints}
                 season="spring"
                 displayMode="heatmap"
+                valueRange={[0, 100]}
+                colorScheme="cv"
+                preferCanvas={false}
                 className="h-72 rounded-lg"
               />
             </div>
@@ -450,6 +455,9 @@ export default function SeasonalAnalysis() {
               points={diffMapPoints}
               season="spring"
               displayMode="heatmap"
+              valueRange={[-20, 50]}
+              colorScheme="diverging"
+              preferCanvas={false}
               className="h-[500px] rounded-lg"
             />
             <p className="text-xs text-gray-400 mt-2">

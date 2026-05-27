@@ -69,7 +69,7 @@ def get_analysis(db: Session = Depends(get_db)):
             for mr, sp in local_r2_rows:
                 if sp and mr.local_r2 is not None:
                     local_r2_points.append(
-                        LocalR2Point(lat=sp.lat, lng=sp.lng, local_r2=round(mr.local_r2, 3))
+                        LocalR2Point(lat=sp.lat, lng=sp.lng, local_r2=round(mr.local_r2, 3), model_type=mtype)
                     )
     else:
         # 无模型数据 — 从原始数据在线计算 OLS (LR)
@@ -161,7 +161,7 @@ def get_analysis(db: Session = Depends(get_db)):
                 local_r2_est = r2 * (0.5 + 0.5 * residual_factor * (0.5 + 0.5 * ndvi_dev_weight))
                 local_r2_est = max(0.0, min(1.0, local_r2_est))
                 local_r2_points.append(
-                    LocalR2Point(lat=lat, lng=lng, local_r2=round(local_r2_est, 3))
+                    LocalR2Point(lat=lat, lng=lng, local_r2=round(local_r2_est, 3), model_type="lr")
                 )
 
     result = AnalysisResponse(
