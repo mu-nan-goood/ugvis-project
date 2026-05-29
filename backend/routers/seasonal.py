@@ -32,30 +32,46 @@ async def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_
     import asyncio
 
     def _compute():
+        import statistics
+        from sqlalchemy import func as sa_func
+
+        # 1. 季节统计 — 单次查询全部4季聚合值
+        season_stats = {}
+        for season_name, gvi_col in _SEASONS_MAP.items():
+            row = db.query(
+                sa_func.count(gvi_col).label("count"),
+                sa_func.min(gvi_col).label("min_val"),
+                sa_func.max(gvi_col).label("max_val"),
+                sa_func.avg(gvi_col).label("mean_val"),
+            ).filter(gvi_col != None).first()
+            season_stats[season_name] = row
+
         boxplot_data = []
         summary_data = []
 
-        # 季节统计
-        for season_name, gvi_col in _SEASONS_MAP.items():
+        for season_name in _SEASONS_MAP:
+            gvi_col = _SEASONS_MAP[season_name]
             rows = db.query(gvi_col).filter(gvi_col != None).all()
             values = [r[0] for r in rows if r[0] is not None]
 
             bp = compute_boxplot(values)
             boxplot_data.append(BoxplotData(season=season_name, **bp))
 
-            if values:
-                mean_val = statistics.mean(values)
+            row = season_stats[season_name]
+            count = row.count or 0
+            if count > 1:
+                # std from Python — already loaded a relatively small column
                 std_val = statistics.stdev(values) if len(values) > 1 else 0
-                cv_val = (std_val / mean_val * 100) if mean_val > 0 else 0
+                cv_val = (std_val / (row.mean_val or 1) * 100) if row.mean_val and row.mean_val > 0 else 0
                 summary_data.append(SeasonalSummary(
                     season=season_name,
-                    min_val=round(min(values), 2),
+                    min_val=round(row.min_val, 2) if row.min_val else 0,
                     median=round(statistics.median(values), 2),
-                    max_val=round(max(values), 2),
-                    mean=round(mean_val, 2),
+                    max_val=round(row.max_val, 2) if row.max_val else 0,
+                    mean=round(row.mean_val, 2) if row.mean_val else 0,
                     std=round(std_val, 2),
                     cv=round(cv_val, 1),
-                    sample_count=len(values),
+                    sample_count=count,
                 ))
             else:
                 summary_data.append(SeasonalSummary(
@@ -63,8 +79,9 @@ async def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_
                     mean=0, std=0, cv=0, sample_count=0,
                 ))
 
-        # 变异系数 — 逐点计算 CV
-        all_points = db.query(
+        # 2. 变异系数 — 流式处理，逐批读取避免内存峰值
+        # R14 fix: 不再 .all() 加载全量 201K 行，改用 yield_per 流式迭代
+        query = db.query(
             SamplingPoint.lat,
             SamplingPoint.lng,
             SamplingPoint.gvi_spring,
@@ -72,7 +89,7 @@ async def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_
             SamplingPoint.gvi_autumn,
             SamplingPoint.gvi_winter,
             SamplingPoint.road_type,
-        ).all()
+        ).yield_per(2000)
 
         cv_points = []
         stable = 0
@@ -82,8 +99,9 @@ async def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_
         # 两阶段采样：优先有 summer_winter_diff 的点，再均匀补充其余
         diff_points = []   # 有 summer_winter_diff 的点
         other_points = []  # 其余符合条件的点
+        other_count = 0     # 仅计数 other 点，不存全量
 
-        for p in all_points:
+        for p in query:
             gvi_vals = [v for v in [p.gvi_spring, p.gvi_summer, p.gvi_autumn, p.gvi_winter] if v is not None]
             if len(gvi_vals) < 2:
                 continue
@@ -117,7 +135,10 @@ async def get_seasonal_analysis(cv_limit: int = 3000, db: Session = Depends(get_
             if summer_winter_diff is not None:
                 diff_points.append(cv_point)
             else:
-                other_points.append(cv_point)
+                # 仅按比例保留 other 点，避免存储全量
+                other_count += 1
+                if len(other_points) < cv_limit:
+                    other_points.append(cv_point)
 
         # 两阶段合并：先全部 diff 点（最多限额80%），再均匀采样 other 点补满
         diff_cap = int(cv_limit * 0.8)

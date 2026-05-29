@@ -34,10 +34,13 @@ def route_length(coords: list) -> float:
 def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limit_per_segment: int = 30, season: str = "spring") -> dict:
     """
     沿路线采样 GVI 点。
-    对每个路段的中点进行缓冲区查询，取最近的点。
+    对每个路段进行等间隔多点采样（非仅中点），取最近的点。
     返回平均 GVI（四季），以及每段的统计。
+
+    P1 fix: 长路段仅取中点会丢失大量信息，现在按 200m 间隔均匀采样。
     """
     all_nearby = []
+    seen_ids = set()  # 去重：同一点可能在多个采样位置被命中
     segments = []
 
     for i in range(1, len(coords)):
@@ -45,28 +48,41 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
         lat2, lng2 = coords[i]["lat"], coords[i]["lng"]
         length = haversine(lat1, lng1, lat2, lng2)
 
-        # 路段中点
-        mid_lat = (lat1 + lat2) / 2
-        mid_lng = (lng1 + lng2) / 2
+        # 等间隔采样：每 200m 一个采样点，至少取中点
+        num_samples = max(1, int(length / 200))
+        sample_fracs = [t / num_samples for t in range(num_samples + 1)]
+        # 限制最大采样数防止极长路段查询过多
+        if len(sample_fracs) > 8:
+            step = (len(sample_fracs) - 1) / 7
+            sample_fracs = [round(i * step / (len(sample_fracs) - 1), 4) for i in range(8)]
 
-        # 在中点附近找采样点：矩形粗筛 + Haversine 精确过滤
-        # 粗筛：扩大 1.5 倍范围确保不遗漏（经度方向 1° ≈ 111320*cos(lat) m）
-        cos_lat = math.cos(math.radians(mid_lat))
-        deg_lat = buffer_m * 1.5 / 111320.0
-        deg_lng = buffer_m * 1.5 / (111320.0 * cos_lat) if cos_lat > 0.01 else deg_lat
-        rough = (
-            db.query(SamplingPoint)
-            .filter(
-                SamplingPoint.lat.between(mid_lat - deg_lat, mid_lat + deg_lat),
-                SamplingPoint.lng.between(mid_lng - deg_lng, mid_lng + deg_lng),
+        seg_nearby = []
+        for frac in sample_fracs:
+            sample_lat = lat1 + (lat2 - lat1) * frac
+            sample_lng = lng1 + (lng2 - lng1) * frac
+
+            # 矩形粗筛 + Haversine 精确过滤
+            cos_lat = math.cos(math.radians(sample_lat))
+            deg_lat = buffer_m * 1.5 / 111320.0
+            deg_lng = buffer_m * 1.5 / (111320.0 * cos_lat) if cos_lat > 0.01 else deg_lat
+            rough = (
+                db.query(SamplingPoint)
+                .filter(
+                    SamplingPoint.lat.between(sample_lat - deg_lat, sample_lat + deg_lat),
+                    SamplingPoint.lng.between(sample_lng - deg_lng, sample_lng + deg_lng),
+                )
+                .all()
             )
-            .all()
-        )
-        # 精确过滤：Haversine 球面距离 ≤ buffer_m
-        nearby = [p for p in rough if haversine(mid_lat, mid_lng, p.lat, p.lng) <= buffer_m]
-        # 限制每段返回数量（按距离排序取最近的）
-        nearby.sort(key=lambda p: haversine(mid_lat, mid_lng, p.lat, p.lng))
-        nearby = nearby[:limit_per_segment]
+            # 精确过滤：Haversine 球面距离 ≤ buffer_m
+            for p in rough:
+                if haversine(sample_lat, sample_lng, p.lat, p.lng) <= buffer_m:
+                    if p.point_id not in seen_ids:
+                        seen_ids.add(p.point_id)
+                        seg_nearby.append((p, haversine(sample_lat, sample_lng, p.lat, p.lng)))
+
+        # 按距离排序取最近的
+        seg_nearby.sort(key=lambda x: x[1])
+        nearby = [p for p, _ in seg_nearby[:limit_per_segment]]
 
         if nearby:
             # 计算该路段四季平均 GVI
@@ -83,6 +99,7 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
                 "to_idx": i,
                 "length_m": round(length, 1),
                 "sample_count": len(nearby),
+                "sample_positions": len(sample_fracs),
                 "avg_gvi": {
                     "spring": avg(spring_vals),
                     "summer": avg(summer_vals),

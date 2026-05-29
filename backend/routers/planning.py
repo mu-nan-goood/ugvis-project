@@ -3,7 +3,7 @@ import json
 import logging
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -187,16 +187,19 @@ def get_planning(
             suggestion=suggestion,
         ))
 
-    # Global stats (always full counts, not filtered by priority param)
-    high_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        gvi_col != None, gvi_col < 5
-    ).scalar()
-    med_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        gvi_col >= 5, gvi_col < 8
-    ).scalar()
-    low_total = db.query(sa_func.count()).select_from(SamplingPoint).filter(
-        gvi_col >= 8, gvi_col < 10
-    ).scalar()
+    # Global stats — single query with GROUP BY instead of 3 separate counts
+    from sqlalchemy import case as sa_case, and_ as sa_and
+    priority_buckets = db.query(
+        sa_func.sum(sa_case((gvi_col < 5, 1), else_=0)).label("high"),
+        sa_func.sum(sa_case((sa_and(gvi_col >= 5, gvi_col < 8), 1), else_=0)).label("med"),
+        sa_func.sum(sa_case((sa_and(gvi_col >= 8, gvi_col < 10), 1), else_=0)).label("low"),
+    ).filter(
+        gvi_col != None,
+        gvi_col < 10,
+    ).first()
+    high_total = getattr(priority_buckets, "high", 0) or 0
+    med_total = getattr(priority_buckets, "med", 0) or 0
+    low_total = getattr(priority_buckets, "low", 0) or 0
 
     stats = PlanningStats(
         high_priority=high_total,

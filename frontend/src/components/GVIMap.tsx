@@ -3,7 +3,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.heat'
 import type { MapPoint, Season, RouteCoord } from '../types'
-import { wgs84ToGcj02 } from '../utils/coordTransform'
+import { wgs84ToGcj02, gcj02ToWgs84 } from '../utils/coordTransform'
 
 /** Escape HTML special chars to prevent XSS in Leaflet bindPopup template literals */
 function esc(s: string | number | null | undefined): string {
@@ -126,6 +126,20 @@ export default function GVIMap({
     [baseMap],
   )
 
+  // 坐标反向转换：高德底图时将 GCJ-02 转回 WGS-84
+  const fromMapCoord = useCallback(
+    (lat: number, lng: number): [number, number] => {
+      if (baseMap === 'gaode' || baseMap === 'gaode-satellite') {
+        return gcj02ToWgs84(lat, lng)
+      }
+      return [lat, lng]
+    },
+    [baseMap],
+  )
+
+  const fromMapCoordRef = useRef(fromMapCoord)
+  fromMapCoordRef.current = fromMapCoord
+
   // ─── Effect 1: Map singleton initialisation (deps=[]) ──
   // Strictly only creates the map once. Cleanup removes heatmap first, then map.
   useEffect(() => {
@@ -137,6 +151,9 @@ export default function GVIMap({
       preferCanvas,  // SVG→Canvas: 200K+ circleMarker without lag; 纯热力图场景用 SVG 更安全
     }).setView([32.05, 118.78], 11)
     leafletMap.current = map
+
+    // ── 比例尺 ──
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map)
 
     // ── 底图瓦片 ──
     const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -182,7 +199,9 @@ export default function GVIMap({
     // doesn't need planningMode/onMapClick in its dependency array (F3 fix)
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (planningModeRef.current && onMapClickRef.current) {
-        onMapClickRef.current(e.latlng.lat, e.latlng.lng)
+        // 高德底图时 e.latlng 是 GCJ-02，需转回 WGS-84
+        const [wLat, wLng] = fromMapCoordRef.current(e.latlng.lat, e.latlng.lng)
+        onMapClickRef.current(wLat, wLng)
       }
     })
 

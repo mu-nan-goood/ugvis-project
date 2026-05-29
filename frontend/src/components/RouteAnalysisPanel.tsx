@@ -162,6 +162,8 @@ interface Props {
   onAddWaypoint?: (lat: number, lng: number) => void
   /** 移除路点 */
   onRemoveWaypoint: (id: number) => void
+  /** 撤销最近一个路点 */
+  onUndoWaypoint?: () => void
   /** 清除所有 */
   onClear: () => void
   /** 路点变化时触发外部绘制 */
@@ -174,6 +176,7 @@ export default function RouteAnalysisPanel({
   waypoints,
   season,
   onRemoveWaypoint,
+  onUndoWaypoint,
   onClear,
   onRouteChange,
   onGreenRouteFound,
@@ -244,6 +247,19 @@ export default function RouteAnalysisPanel({
               >
                 {loading ? '分析中...' : '分析路线'}
               </button>
+            </>
+          )}
+          {waypoints.length > 0 && (
+            <>
+              {onUndoWaypoint && (
+                <button
+                  onClick={onUndoWaypoint}
+                  className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"
+                  title="撤销最后一个路点"
+                >
+                  ↩ 撤销
+                </button>
+              )}
               <button
                 onClick={onClear}
                 className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200"

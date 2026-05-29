@@ -119,6 +119,10 @@ export default function MapView() {
     setWaypoints((prev) => prev.filter((w) => w.id !== id))
   }, [])
 
+  const handleUndoWaypoint = useCallback(() => {
+    setWaypoints((prev) => prev.length > 0 ? prev.slice(0, -1) : prev)
+  }, [])
+
   const handleClearWaypoints = useCallback(() => {
     setWaypoints([])
     setRouteCoords([])
@@ -341,6 +345,7 @@ export default function MapView() {
               season={season}
               onAddWaypoint={(lat, lng) => handleMapClick(lat, lng)}
               onRemoveWaypoint={handleRemoveWaypoint}
+              onUndoWaypoint={handleUndoWaypoint}
               onClear={handleClearWaypoints}
               onRouteChange={handleRouteChange}
               onGreenRouteFound={(coords) => setHighlightCoords(coords)}

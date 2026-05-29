@@ -172,6 +172,10 @@ def export_points_csv(
         'ndvi_spring', 'ndvi_summer', 'ndvi_autumn', 'ndvi_winter',
         'road_type',
     ])
+    # 坐标系说明行
+    writer.writerow([
+        '# 坐标系: WGS-84 (EPSG:4326)', '', '', '', '', '', '', '', '', '', '', '',
+    ])
     for p in points:
         writer.writerow([
             p.point_id, p.lat, p.lng,
