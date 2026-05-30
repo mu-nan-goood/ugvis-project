@@ -84,26 +84,6 @@ export default function Planning() {
   useEffect(() => { setCurrentPage(1) }, [filterPriority, filterRoadType])
 
   // Listen for AI ask events from MapView
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'ask-ai') {
-        const pointId = e.data.pointId
-        const area = weakAreas.find((a) => a.point_id === pointId)
-        if (area) {
-          setSelectedPoint(area)
-          setChatOpen(true)
-          const context = `请分析采样点 ${area.point_id}（坐标 ${area.lat.toFixed(4)}, ${area.lng.toFixed(4)}），道路类型：${ROAD_TYPE_LABELS[area.road_type || ''] || area.road_type || '未知'}，四季 GVI：冬${area.gvi_winter?.toFixed(1) ?? '-'}% 春${area.gvi_spring?.toFixed(1) ?? '-'}% 夏${area.gvi_summer?.toFixed(1) ?? '-'}% 秋${area.gvi_autumn?.toFixed(1) ?? '-'}%，当前改造建议：${area.suggestion}。`
-          // Dispatch to chat drawer
-          window.dispatchEvent(new MessageEvent('message', {
-            data: { type: 'ask-ai', context }
-          }))
-        }
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [weakAreas])
-
   // ── Navigation ─────────────────────────────────────
   function openInMap(area: WeakArea) {
     navigate(
@@ -144,9 +124,9 @@ export default function Planning() {
     setSelectedPoint(area)
     setChatOpen(true)
     const context = `请分析采样点 ${area.point_id}（坐标 ${area.lat.toFixed(4)}, ${area.lng.toFixed(4)}），道路类型：${ROAD_TYPE_LABELS[area.road_type || ''] || area.road_type || '未知'}，四季 GVI：冬${area.gvi_winter?.toFixed(1) ?? '-'}% 春${area.gvi_spring?.toFixed(1) ?? '-'}% 夏${area.gvi_summer?.toFixed(1) ?? '-'}% 秋${area.gvi_autumn?.toFixed(1) ?? '-'}%，改造建议：${area.suggestion}。给我具体的绿化改造建议。`
-    // Dispatch to chat drawer
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { type: 'ask-ai', context }
+    // R12 fix: dispatch CustomEvent directly to AIChatDrawer
+    window.dispatchEvent(new CustomEvent('ugvis-ask-ai', {
+      detail: { context }
     }))
   }
 

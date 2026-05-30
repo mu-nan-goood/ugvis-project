@@ -4,6 +4,21 @@ from pydantic import BaseModel, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
+
+def _validate_password(v: str) -> str:
+    """密码复杂度校验（公共逻辑）"""
+    if len(v) < 8:
+        raise ValueError("密码长度不能少于8个字符")
+    if not re.search(r"[A-Z]", v):
+        raise ValueError("密码必须包含至少一个大写字母")
+    if not re.search(r"[a-z]", v):
+        raise ValueError("密码必须包含至少一个小写字母")
+    if not re.search(r"[0-9]", v):
+        raise ValueError("密码必须包含至少一个数字")
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-=+\[\]\\/]', v):
+        raise ValueError("密码必须包含至少一个特殊字符")
+    return v
+
 class HealthResponse(BaseModel):
     message: str
     version: str
@@ -272,17 +287,7 @@ class UserCreate(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("密码长度不能少于8个字符")
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("密码必须包含至少一个大写字母")
-        if not re.search(r"[a-z]", v):
-            raise ValueError("密码必须包含至少一个小写字母")
-        if not re.search(r"[0-9]", v):
-            raise ValueError("密码必须包含至少一个数字")
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-=+\[\]\\/]', v):
-            raise ValueError("密码必须包含至少一个特殊字符")
-        return v
+        return _validate_password(v)
 
 
 class UserResponse(BaseModel):
@@ -313,14 +318,4 @@ class PasswordChangeRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("密码长度不能少于8个字符")
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("密码必须包含至少一个大写字母")
-        if not re.search(r"[a-z]", v):
-            raise ValueError("密码必须包含至少一个小写字母")
-        if not re.search(r"[0-9]", v):
-            raise ValueError("密码必须包含至少一个数字")
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-=+\[\]\\/]', v):
-            raise ValueError("密码必须包含至少一个特殊字符")
-        return v
+        return _validate_password(v)

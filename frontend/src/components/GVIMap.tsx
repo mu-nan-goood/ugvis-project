@@ -91,6 +91,8 @@ export default function GVIMap({
   planningModeRef.current = planningMode
   const onMapClickRef = useRef(onMapClick)
   onMapClickRef.current = onMapClick
+  const onStreetViewRef = useRef(onStreetView)
+  onStreetViewRef.current = onStreetView
 
   // Track visibility: when parent toggles hidden→visible, invalidate map size
   useEffect(() => {
@@ -208,9 +210,9 @@ export default function GVIMap({
     // 街景查看事件监听
     const streetViewHandler = (e: Event) => {
       const pointId = (e as CustomEvent).detail?.pointId
-      if (pointId != null && onStreetView) {
+      if (pointId != null && onStreetViewRef.current) {
         const p = pointById.current.get(pointId)
-        if (p) onStreetView(p)
+        if (p) onStreetViewRef.current(p)
       }
     }
     window.addEventListener('ugvis-streetview', streetViewHandler as EventListener)

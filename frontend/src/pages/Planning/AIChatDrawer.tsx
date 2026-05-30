@@ -52,8 +52,11 @@ export default function AIChatDrawer({
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail?.pointId != null) {
-        // Set a prompt context referencing the clicked point
+      if (detail?.context) {
+        // Planning page sends full context string
+        setInputMessage(detail.context)
+      } else if (detail?.pointId != null) {
+        // GVIMap sends pointId from popup click
         setInputMessage(`请分析采样点 ${detail.pointId} 的绿化情况`)
       }
     }

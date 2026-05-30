@@ -1,4 +1,5 @@
 """backend/routers/stats.py"""
+from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -66,7 +67,7 @@ def get_stats(db: Session = Depends(get_db)):
 def get_roads(
     skip: int = 0,
     limit: int = 100,
-    road_type: str = None,
+    road_type: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(RoadSegment)

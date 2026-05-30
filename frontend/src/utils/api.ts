@@ -40,10 +40,10 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 // ── 请求拦截器：自动注入 Bearer Token ───────────────────
 
 let isRefreshing = false
-let refreshQueue: Array<(token: string) => void> = []
+let refreshQueue: Array<{ resolve: (token: string) => void; reject: (error: unknown) => void }> = []
 
 function processRefreshQueue(token: string) {
-  refreshQueue.forEach((cb) => cb(token))
+  refreshQueue.forEach(({ resolve }) => resolve(token))
   refreshQueue = []
 }
 
@@ -64,10 +64,13 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
-        return new Promise((resolve) => {
-          refreshQueue.push((token: string) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`
-            resolve(api(originalRequest))
+        return new Promise((resolve, reject) => {
+          refreshQueue.push({
+            resolve: (token: string) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`
+              resolve(api(originalRequest))
+            },
+            reject,
           })
         })
       }
@@ -96,7 +99,7 @@ api.interceptors.response.use(
         // R2 fix: Reject all queued promises to prevent memory leak
         const failedQueue = refreshQueue
         refreshQueue = []
-        failedQueue.forEach(() => {/* reject implicitly by redirecting */})
+        failedQueue.forEach(({ reject }) => reject(refreshError))
         clearAccessToken()
         window.location.href = '/auth?reason=session_expired'
         return Promise.reject(refreshError)
@@ -331,6 +334,7 @@ export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGene
   })
 
   if (!response.ok) {
+    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 
@@ -356,6 +360,7 @@ export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStre
   })
 
   if (!response.ok) {
+    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 
@@ -498,6 +503,7 @@ export async function* streamExpertPanel(
   })
 
   if (!response.ok) {
+    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 
