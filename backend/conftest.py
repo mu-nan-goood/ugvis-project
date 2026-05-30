@@ -1,8 +1,10 @@
 """backend/conftest.py — pytest fixtures for UGVIS API testing"""
 import os
 import pytest
+import tempfile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 # Ensure test environment
@@ -14,13 +16,24 @@ from main import app
 
 
 # ── Test Database ──────────────────────────────────────────
-TEST_DB_URL = "sqlite:///./test_ugvis.db"
-engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
-TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+_db_fd, _db_path = tempfile.mkstemp(suffix=".db", prefix="ugvis_test_")
+os.close(_db_fd)
+
+_engine = None
+_SessionLocal = None
+
+def _make_engine():
+    return create_engine(
+        f"sqlite:///{_db_path}",
+        connect_args={"check_same_thread": False},
+    )
+
+_engine = _make_engine()
+_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
 
 def override_get_db():
-    db = TestSessionLocal()
+    db = _SessionLocal()
     try:
         yield db
     finally:
@@ -32,26 +45,30 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
 def setup_database():
-    """Create tables before each test, drop after."""
-    Base.metadata.create_all(bind=engine)
+    """Recreate tables from scratch before each test."""
+    global _engine, _SessionLocal
+    _engine.dispose()
+    if os.path.exists(_db_path):
+        os.remove(_db_path)
+    _engine = _make_engine()
+    _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+    app.dependency_overrides[get_db] = override_get_db
+    Base.metadata.create_all(bind=_engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    _engine.dispose()
 
 
 @pytest.fixture
 def client():
-    """FastAPI test client with test database."""
     return TestClient(app)
 
 
 @pytest.fixture
 def auth_token(client):
-    """Get a valid JWT token by creating a user and logging in."""
-    # Register / create user directly in DB
     from services.auth import get_password_hash
     from models import User
 
-    db = TestSessionLocal()
+    db = _SessionLocal()
     user = User(
         username="testuser",
         email="test@ugvis.local",
@@ -63,17 +80,14 @@ def auth_token(client):
     db.commit()
     db.close()
 
-    # Login to get token
     response = client.post("/api/auth/login", json={
         "username": "testuser",
         "password": "testpass123",
     })
     assert response.status_code == 200, f"Login failed: {response.text}"
-    data = response.json()
-    return data["access_token"]
+    return response.json()["access_token"]
 
 
 @pytest.fixture
 def auth_headers(auth_token):
-    """Authorization headers for authenticated requests."""
     return {"Authorization": f"Bearer {auth_token}"}
