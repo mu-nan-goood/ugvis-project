@@ -12,6 +12,7 @@
 |:---|:---|
 | 总览面板 | 系统关键指标、四季 GVI 分布统计 |
 | 地图可视化 | 采样点空间分布 + 热力图，支持四季 GVI 切换、高亮点位、路线规划、街景浏览 |
+| 3D 可视化 | Cesium 3D 城市模型，支持 GVI 热力柱体、2D/3D 模式切换 |
 | 空间分析 | 道路类型 + GVI/NDVI 相关性分析 + LR/GWR/MGWR 模型对比 |
 | 季节分析 | 变异系数(CV)热力图、稳定性分级、五数概括 |
 | AI 改造建议 | 多 LLM 支持、SSE 流式输出、多轮对话、Function Calling |
@@ -26,13 +27,15 @@
 
 ## 技术栈
 
-**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet(preferCanvas+Canvas renderer) + ECharts(按需引入)
+**前端**: React 18 + TypeScript + Vite + Tailwind CSS + Leaflet(Canvas+SVG双渲染器) + ECharts(按需引入) + Cesium 3D
 
 **后端**: FastAPI + SQLAlchemy + SQLite(201K点/40K道路/472K模型结果) + Alembic
 
 **AI**: DeepSeek / Kimi / Claude / OpenAI / 自定义 LLM + Expert Panel + RAG
 
 **嵌入模型**: LM Studio (nomic-embed-text-v2-moe, 768维) / Ollama (nomic-embed-text)
+
+**3D 可视化**: Cesium World Terrain + OSM Buildings，支持 2D/3D 模式切换
 
 ---
 
@@ -46,7 +49,7 @@ ugvis-project/
 │   ├── schemas.py          # Pydantic schemas（含密码复杂度校验）
 │   ├── database.py         # 数据库连接 + 索引
 │   ├── config.py           # 配置管理 + JWT 安全检查
-│   ├── routers/            # API 路由 (40端点)
+│   ├── routers/            # API 路由 (37端点)
 │   │   ├── auth.py         # 认证 (登录/注册/刷新/角色管理)
 │   │   ├── planning.py     # AI 建议 + SSE + 专家面板
 │   │   ├── feedback.py     # 建议反馈 + 统计
@@ -235,6 +238,31 @@ docker-compose up -d
 ---
 
 ## 最近更新
+
+### 2026-05-30 — 后端增强 & 3D 模式稳定化
+
+- **Cesium 3D 模式锁定**: 锁定 `sceneMode: SCENE3D` + 隐藏 `sceneModePicker`，消除 2D/3D 切换时 `ellipsoidTo2DModelMatrix` 崩溃
+- **GVI3DMap 清理增强**: `destroy()` 前预清理 `primitives.removeAll()` + `entities.removeAll()`，避免 Cesium 资源泄漏
+- **AI 端点速率限制**: 新增中间件，AI 建议类端点（advice/stream/chat/expert-panel）限速 10次/分钟
+- **数据库索引增强**: 新增 `advice_feedback.user_id` 和 `seasonal_metrics.road_type_season` 索引
+- **Alembic 模型注册完善**: env.py 显式导入 `AdviceFeedback` + `User` 模型，解决迁移时模型漏检
+- **API Key 日志脱敏**: LLM 调用日志不再显示 API Key 末位字符
+
+### 2026-05-28 — 坐标系偏移 & clearRect 崩溃修复
+
+- **坐标系偏移修复**: 高德底图点击坐标 GCJ-02→WGS-84 逆转换修复，误差从 300-500m 降至 <1m
+- **Leaflet clearRect 崩溃修复**: 热力图场景切换 SVG renderer（`preferCanvas=false`），根本消除 Canvas renderer `map.remove()` 崩溃条件
+- **路线模式撤销**: MapView 新增 ↩ 撤销按钮，逐个删除路点
+- **比例尺控件**: GVIMap 新增 `L.control.scale`，显示公制比例尺
+- **路线采样粒度提升**: 等间隔 200m 多点采样，每段最多 8 个点
+- **CSV 坐标系标注**: 导出 CSV 文件添加 `# 坐标系: WGS-84 (EPSG:4326)` 注释行
+
+### 2026-05-26 — Cesium 3D 可视化集成
+
+- **Cesium 3D 落地**: GVI3DMap.tsx (~335行) 支持热力柱体、WGS-84 坐标系、Cesium World Terrain
+- **2D/3D 模式切换**: MapView.tsx 集成 2D/3D 切换，Cesium Token 环境变量读取 + OSM 免费影像 Fallback
+- **热力图参数优化**: radius 35 / blur 30 / minOpacity 0.2，解决显示突兀问题
+- **local_r2 归一化**: 按模型类型（LR/GWR/MGWR）过滤热力图，模型切换联动
 
 ### 2026-05-23 — 12项已知限制全部修复
 
