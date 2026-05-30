@@ -20,7 +20,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database import Base
-from models import SamplingPoint, RoadSegment, ModelResult, SeasonalMetric  # noqa: F401
+from models import SamplingPoint, RoadSegment, ModelResult, SeasonalMetric, AdviceFeedback, User  # noqa: F401
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

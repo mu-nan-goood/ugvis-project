@@ -38,6 +38,10 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_sampling_points_road_type_gvi_winter ON sampling_points(road_type, gvi_winter)",
     # ModelResult 按 point_id + model_type 查找
     "CREATE INDEX IF NOT EXISTS ix_model_results_point_type ON model_results(point_id, model_type)",
+    # AdviceFeedback 按 user_id 查找（外键关联 users 表）
+    "CREATE INDEX IF NOT EXISTS ix_advice_feedback_user_id ON advice_feedback(user_id)",
+    # SeasonalMetric 高频查询：按道路类型+季节联合过滤
+    "CREATE INDEX IF NOT EXISTS ix_seasonal_metrics_road_type_season ON seasonal_metrics(road_type, season)",
 ]
 
 # SQLite 的 CREATE INDEX IF NOT EXISTS 本身是幂等的，但用事务包裹确保兼容

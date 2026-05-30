@@ -47,3 +47,14 @@ docker/postgres_data/
 # Temp test files
 api_response*.json
 test_result*.json
+
+# Logs
+*.log
+uvicorn*.log
+backend_out.log
+backend_err.log
+
+# Coverage
+htmlcov/
+.coverage
+coverage/

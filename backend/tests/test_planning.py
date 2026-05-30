@@ -10,7 +10,6 @@ class TestPlanningEndpoints:
         response = client.get("/api/planning/weak-areas")
         assert response.status_code == 200
         data = response.json()
-        # Should have pagination metadata
         assert isinstance(data, dict)
 
     def test_get_weak_areas_with_pagination(self, client):
@@ -28,5 +27,4 @@ class TestPlanningEndpoints:
     def test_get_tools(self, client, auth_headers):
         """GET /api/planning/tools should return available AI tools (requires auth)."""
         response = client.get("/api/planning/tools", headers=auth_headers)
-        # May be 200 or 401 depending on auth config
-        assert response.status_code in (200, 401)
+        assert response.status_code == 200

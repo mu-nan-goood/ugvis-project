@@ -126,7 +126,8 @@ export default function GVI3DMap({
       baseLayerPicker: false,
       geocoder: false,
       homeButton: true,
-      sceneModePicker: true,
+      sceneModePicker: false,
+      sceneMode: Cesium.SceneMode.SCENE3D,
       navigationHelpButton: false,
       fullscreenButton: false,
       infoBox: false,
@@ -172,7 +173,15 @@ export default function GVI3DMap({
     cylinderCollectionRef.current = cylinderCollection
 
     return () => {
-      viewer.destroy()
+      try {
+        viewer.scene.primitives.removeAll()
+      } catch { /* ignore */ }
+      try {
+        viewer.entities.removeAll()
+      } catch { /* ignore */ }
+      try {
+        viewer.destroy()
+      } catch { /* ignore */ }
       viewerRef.current = null
       pointCollectionRef.current = null
       cylinderCollectionRef.current = null

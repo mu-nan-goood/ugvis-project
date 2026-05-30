@@ -43,6 +43,13 @@ export function wgs84ToGcj02(lat: number, lng: number): [number, number] {
   return [lat + dLat, lng + dLng]
 }
 
+/** GCJ-02 → WGS-84（逆向近似，精度 < 1m） */
+export function gcj02ToWgs84(lat: number, lng: number): [number, number] {
+  if (outOfChina(lat, lng)) return [lat, lng]
+  const [gLat, gLng] = wgs84ToGcj02(lat, lng)
+  return [lat * 2 - gLat, lng * 2 - gLng]
+}
+
 /** GCJ-02 → BD-09（百度坐标系） */
 export function gcj02ToBd09(lat: number, lng: number): [number, number] {
   const z = Math.sqrt(lng * lng + lat * lat) + 0.00002 * Math.sin((lat * PI * 3000.0) / 180.0)

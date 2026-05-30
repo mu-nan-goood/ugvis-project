@@ -7,8 +7,10 @@ from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import text
 
 from database import engine, Base, SessionLocal
@@ -22,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 # ── 速率限制 ────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
+# AI 路由限速配置
+_AI_RATE_LIMIT = "10/minute"
 # 导入 LLM 客户端（容错）
 try:
     from backend.services.llm_client import llm_client
@@ -99,6 +103,40 @@ app.include_router(planning.router)
 app.include_router(feedback.router)
 app.include_router(routing.router)
 app.include_router(auth.router)  # 认证路由
+
+# ── AI 端点速率限制中间件 ──────────────────────────
+_AI_PATHS = ["/api/planning/advice", "/api/planning/stream",
+             "/api/planning/chat", "/api/planning/chat-stream",
+             "/api/planning/expert-panel"]
+
+@app.middleware("http")
+async def ai_rate_limit_middleware(request: Request, call_next):
+    import time
+    for path in _AI_PATHS:
+        if request.url.path == path and request.method == "POST":
+            key = f"ai_rate:{get_remote_address(request)}"
+            # 简单滑动窗口：每分钟最多 10 次
+            now = time.time()
+            if hasattr(app.state, "_ai_rates"):
+                window = app.state._ai_rates
+            else:
+                window = {}
+                app.state._ai_rates = window
+            if key in window:
+                count, start = window[key]
+                if now - start < 60:
+                    if count >= 10:
+                        return JSONResponse(
+                            status_code=429,
+                            content={"detail": "请求过于频繁，请稍后再试 (AI 端点限速: 10次/分钟)"},
+                        )
+                    window[key] = (count + 1, start)
+                else:
+                    window[key] = (1, now)
+            else:
+                window[key] = (1, now)
+            break
+    return await call_next(request)
 
 
 if __name__ == "__main__":

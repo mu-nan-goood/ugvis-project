@@ -210,7 +210,7 @@ class LLMClient:
         api_key = llm_config.api_key
         model = llm_config.model or DEFAULT_MODELS.get(provider, "gpt-4o")
         api_base = llm_config.api_base or API_BASES.get(provider)
-        logger.info(f"[_call_api] provider={provider}, api_base={api_base}, api_key={'*' + api_key[-4:] if api_key and len(api_key) > 4 else 'SHORT'}, model={model}")
+        logger.info(f"[_call_api] provider={provider}, api_base={api_base}, api_key={'***' if api_key else 'NONE'}, model={model}")
 
         if provider == "claude":
             return await self._call_claude(api_base, api_key, model, prompt, system_prompt, messages)

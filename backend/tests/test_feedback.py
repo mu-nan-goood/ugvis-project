@@ -15,17 +15,16 @@ class TestFeedbackEndpoints:
     def test_submit_feedback_unauthenticated(self, client):
         """POST /api/feedback without auth should return 401."""
         response = client.post("/api/feedback", json={
-            "advice_id": 1,
             "vote": "up",
+            "comment": "Test feedback",
         })
-        assert response.status_code in (401, 403, 422)
+        assert response.status_code == 401
 
     def test_submit_feedback_authenticated(self, client, auth_headers):
-        """POST /api/feedback with auth should accept feedback."""
+        """POST /api/feedback with auth should accept valid feedback."""
         response = client.post("/api/feedback", json={
-            "advice_id": 999,
             "vote": "up",
             "comment": "Test feedback from pytest",
+            "season": "spring",
         }, headers=auth_headers)
-        # May succeed (201/200) or fail (404 if advice_id doesn't exist, 422 if schema mismatch)
-        assert response.status_code in (200, 201, 404, 422)
+        assert response.status_code in (200, 201)
