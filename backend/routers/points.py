@@ -2,6 +2,7 @@
 import io
 import csv
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -24,9 +25,9 @@ router = APIRouter(prefix="/api", tags=["Sampling Points"])
 def get_points(
     skip: int = 0,
     limit: int = 100,
-    season: str = None,
-    road_type: str = None,
-    search: str = None,
+    season: Optional[str] = None,
+    road_type: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(SamplingPoint)

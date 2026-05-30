@@ -203,22 +203,55 @@ export default function GVI3DMap({
     viewer.entities.removeAll()
 
     if (displayMode === 'heatmap') {
-      // 热力柱体模式：低GVI区域用柱体"拔高"表示
+      // R4 fix: 热力柱体使用 Primitive 批量渲染，避免逐个 Entity 导致的 draw call 爆炸
+      // 按颜色分组（6 档），每组创建一个合并 Primitive
+      const groups: Map<string, Array<{ point: MapPoint; height: number }>> = new Map()
+
       for (const point of displayPoints) {
         if (point.gvi == null) continue
         const maxHeight = 500
         const normalizedGvi = Math.min(point.gvi / 30, 1)
         const height = maxHeight * (1 - normalizedGvi)
+        // 量化颜色到 6 档，减少分组数
+        const colorKey = normalizedGvi < 0.2 ? '0' : normalizedGvi < 0.4 ? '1' : normalizedGvi < 0.5 ? '2' : normalizedGvi < 0.6 ? '3' : normalizedGvi < 0.8 ? '4' : '5'
+        if (!groups.has(colorKey)) groups.set(colorKey, [])
+        groups.get(colorKey)!.push({ point, height })
+      }
 
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(point.lng, point.lat, Math.max(height, 1) / 2),
-          cylinder: {
-            length: Math.max(height, 1),
-            topRadius: 15,
-            bottomRadius: 15,
-            material: heatmapColor(point.gvi).withAlpha(0.7),
-          },
+      for (const [, group] of groups) {
+        if (group.length === 0) continue
+        const sample = group[0]
+        const color = heatmapColor(sample.point.gvi!).withAlpha(0.7)
+
+        const instances: Cesium.GeometryInstance[] = group.map(({ point, height }) =>
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.CylinderGeometry({
+              length: Math.max(height, 1),
+              topRadius: 15,
+              bottomRadius: 15,
+            }),
+            modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(
+              Cesium.Cartesian3.fromDegrees(point.lng, point.lat, Math.max(height, 1) / 2),
+            ),
+            id: point.id,
+          }),
+        )
+
+        const primitive = new Cesium.Primitive({
+          geometryInstances: instances,
+          appearance: new Cesium.MaterialAppearance({
+            material: new Cesium.Material({
+              fabric: {
+                type: 'Color',
+                uniforms: {
+                  color: color,
+                },
+              },
+            }),
+          }),
+          asynchronous: false,
         })
+        cylinderCollection.add(primitive)
       }
     } else {
       // 散点模式

@@ -1,3 +1,6 @@
+# UGVIS Docker Compose — SQLite 开发部署（单机快速启动）
+# 注意：生产环境/PostgreSQL 方案请使用 docker/docker-compose.yml
+# 两套配置互斥，请勿同时运行
 services:
   backend:
     build:

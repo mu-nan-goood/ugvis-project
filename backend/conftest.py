@@ -1,4 +1,5 @@
 """backend/conftest.py — pytest fixtures for UGVIS API testing"""
+import atexit
 import os
 import pytest
 import tempfile
@@ -18,6 +19,16 @@ from main import app
 # ── Test Database ──────────────────────────────────────────
 _db_fd, _db_path = tempfile.mkstemp(suffix=".db", prefix="ugvis_test_")
 os.close(_db_fd)
+
+# G5 fix: atexit 清理临时数据库文件
+def _cleanup_temp_db():
+    try:
+        if os.path.exists(_db_path):
+            os.remove(_db_path)
+    except OSError:
+        pass
+
+atexit.register(_cleanup_temp_db)
 
 _engine = None
 _SessionLocal = None

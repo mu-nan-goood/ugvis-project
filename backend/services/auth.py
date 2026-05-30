@@ -17,8 +17,8 @@ from schemas import TokenData, UserResponse
 
 logger = logging.getLogger(__name__)
 
-# 密码哈希上下文（使用 bcrypt）
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# 密码哈希上下文（使用 bcrypt，显式指定 rounds=12）
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
 # OAuth2 scheme - 从 Authorization header 提取 Bearer token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)

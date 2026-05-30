@@ -100,7 +100,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${darkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}>
                   <User className="w-4 h-4" />
                   <span className="font-medium">{user.username}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${{ admin: 'bg-red-100 text-red-700', analyst: 'bg-blue-100 text-blue-700', user: 'bg-gray-200 text-gray-600' }}[user.role]`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${{ admin: 'bg-red-100 text-red-700', analyst: 'bg-blue-100 text-blue-700', user: 'bg-gray-200 text-gray-600', guest: 'bg-gray-200 text-gray-600' }}[user.role] ?? 'bg-gray-200 text-gray-600'`}>
                     {user.role}
                   </span>
                 </div>

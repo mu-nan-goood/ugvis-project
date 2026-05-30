@@ -13,11 +13,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.0",
     "cesium": "^1.141.0",
-    "clsx": "^2.0.0",
     "echarts": "^5.4.3",
     "echarts-for-react": "^3.0.2",
     "leaflet": "^1.9.4",
@@ -26,16 +24,12 @@
     "postcss": "^8.4.32",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.75.0",
     "react-leaflet": "^4.2.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.20.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^2.1.0",
     "tailwindcss": "^3.3.6",
-    "vite-plugin-cesium": "^1.2.23",
-    "zod": "^4.4.3",
-    "zustand": "^4.4.7"
+    "vite-plugin-cesium": "^1.2.23"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

@@ -1,5 +1,7 @@
 version: '3.8'
-
+# UGVIS Docker Compose — PostgreSQL 生产部署
+# 注意：开发环境/SQLite 方案请使用根目录 docker-compose.yml
+# 两套配置互斥，请勿同时运行
 services:
   db:
     image: postgis/postgis:15-3.4

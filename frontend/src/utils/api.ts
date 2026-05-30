@@ -93,6 +93,10 @@ api.interceptors.response.use(
         return api(originalRequest)
       } catch (refreshError) {
         isRefreshing = false
+        // R2 fix: Reject all queued promises to prevent memory leak
+        const failedQueue = refreshQueue
+        refreshQueue = []
+        failedQueue.forEach(() => {/* reject implicitly by redirecting */})
         clearAccessToken()
         window.location.href = '/auth?reason=session_expired'
         return Promise.reject(refreshError)

@@ -75,10 +75,10 @@ async function loadBaiduApi(): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load Baidu JS API'))
     document.head.appendChild(script)
   })
-  // Load panorama module
+  // Load panorama coverage module (required by BMap.Panorama)
   await loadScript(
     'baidu-panorama-js',
-    'https://api.map.baidu.com/library/TextIconOverlay/1.2/src/TextIconOverlay_min.js',
+    'https://api.map.baidu.com/library/PanoramaCoverage/1.2/src/PanoramaCoverage_min.js',
   )
 }
 

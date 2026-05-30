@@ -122,6 +122,13 @@ async def ai_rate_limit_middleware(request: Request, call_next):
             else:
                 window = {}
                 app.state._ai_rates = window
+
+            # R3 fix: 清理过期条目，防止内存泄漏（每次请求最多清理 100 条过期记录）
+            if len(window) > 100:
+                expired_keys = [k for k, (_, start) in window.items() if now - start >= 60]
+                for k in expired_keys[:100]:
+                    del window[k]
+
             if key in window:
                 count, start = window[key]
                 if now - start < 60:

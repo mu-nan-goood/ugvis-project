@@ -48,7 +48,7 @@ def get_chroma_client() -> Any:
             path=str(CHROMA_DB_PATH),
             settings=Settings(
                 anonymized_telemetry=False,  # 关闭遥测
-                allow_reset=True,
+                allow_reset=False,  # R5 fix: 禁止生产环境重置 ChromaDB 数据
             ),
         )
         logger.info(f"ChromaDB initialized at {CHROMA_DB_PATH}")
