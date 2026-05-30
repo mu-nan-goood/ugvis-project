@@ -248,12 +248,6 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
 
 # ── API 端点 ────────────────────────────────────────────
 
-class RouteCoordInput:
-    """请求体：路线坐标列表"""
-    def __init__(self, coords: list):
-        self.coords = coords
-
-
 from pydantic import BaseModel
 
 

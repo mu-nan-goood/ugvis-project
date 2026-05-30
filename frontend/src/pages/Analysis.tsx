@@ -13,6 +13,7 @@ interface ModelMetrics {
   aicc: number
   ndvi_coef: string
   intercept: string
+  is_estimated?: boolean
 }
 
 interface LocalR2Point {
@@ -276,6 +277,7 @@ export default function Analysis() {
                   >
                     <td className={`py-3 px-4 font-medium ${isBest ? 'text-primary-700' : ''}`}>
                       {isBest && '🏆 '}{MODEL_LABELS[m.model_type] || m.model_type}
+                      {m.is_estimated && <span className="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">估算</span>}
                     </td>
                     <td className={`text-right py-3 px-4 ${isBest ? 'font-bold' : ''}`}>
                       {m.r2.toFixed(3)}

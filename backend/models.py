@@ -61,6 +61,7 @@ class ModelResult(Base):
     std_residual = Column(Float)
 
 class SeasonalMetric(Base):
+    """⚠ 未使用 — 季节指标由 seasonal.py 路由实时计算，此模型保留供 Alembic 迁移兼容"""
     __tablename__ = "seasonal_metrics"
     __table_args__ = {'extend_existing': True}
     

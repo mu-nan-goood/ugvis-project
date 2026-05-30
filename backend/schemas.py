@@ -131,6 +131,7 @@ class ModelMetrics(BaseModel):
     aicc: float
     ndvi_coef: str
     intercept: str
+    is_estimated: bool = False  # GWR/MGWR 文献估算时为 True
 
 class LocalR2Point(BaseModel):
     lat: float

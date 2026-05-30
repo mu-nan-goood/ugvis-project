@@ -1,10 +1,21 @@
 import os
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import List, Optional
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./ugvis.db"
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @field_validator('cors_origins', mode='before')
+    @classmethod
+    def strip_cors_origins(cls, v):
+        """去除环境变量中逗号分隔的空格"""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(',')]
+        if isinstance(v, list):
+            return [origin.strip() if isinstance(origin, str) else origin for origin in v]
+        return v
 
     # LLM Configuration (API Keys stored server-side only, never exposed to frontend)
     deepseek_api_key: Optional[str] = None

@@ -114,7 +114,7 @@ def get_analysis(db: Session = Depends(get_db)):
                 intercept=f"{a:.2f}",
             ))
 
-            # GWR / MGWR — 基于文献合理估计
+            # GWR / MGWR — 基于文献合理估计（精确值需独立论文/模型计算）
             gwr_r2 = min(r2 * 1.3, 0.95)
             mgwr_r2 = min(r2 * 1.42, 0.95)
             gwr_adj = 1 - (1 - gwr_r2) * (n - 1) / max(n - 4, 1)
@@ -127,6 +127,7 @@ def get_analysis(db: Session = Depends(get_db)):
                 aicc=round(aicc * 0.85, 1),
                 ndvi_coef=f"{b*0.8:.2f}~{b*1.8:.2f}",
                 intercept=f"{a*0.3:.2f}~{a*1.5:.2f}",
+                is_estimated=True,
             ))
             models.append(ModelMetrics(
                 model_type="mgwr",
@@ -136,6 +137,7 @@ def get_analysis(db: Session = Depends(get_db)):
                 aicc=round(aicc * 0.7, 1),
                 ndvi_coef=f"{b*0.6:.2f}~{b*2.2:.2f}",
                 intercept=f"{a*0.2:.2f}~{a*1.8:.2f}",
+                is_estimated=True,
             ))
 
             # 局部 R² — 采样近似

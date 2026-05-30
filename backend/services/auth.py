@@ -23,6 +23,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds
 # OAuth2 scheme - 从 Authorization header 提取 Bearer token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
+# ⚠ 已知限制：JWT 无吊销机制（logout 后 token 在过期前仍有效）
+# 生产环境需引入 Redis 黑名单或 DB 吊销表；当前为 MVP/Demo 级别设计
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证明文密码与哈希密码是否匹配"""
