@@ -8,6 +8,19 @@ from models import SamplingPoint
 
 router = APIRouter(prefix="/api/routing", tags=["Routing"])
 
+# ── 路线采样配置常量 ──────────────────────────────────────
+SAMPLE_INTERVAL_M = 200       # 路段等间隔采样距离（米）
+MAX_SAMPLES_PER_SEG = 8       # 每段最大采样点数
+BUFFER_RADIUS_M = 50         # 采样点搜索半径（米）
+BUFFER_ROUGH_FACTOR = 1.5     # 矩形粗筛扩大因子
+LIMIT_PER_SEGMENT = 30       # 每段返回最大点数
+GREEN_GVI_THRESHOLD = 30     # 绿化路线推荐 GVI 阈值
+GREEN_SEARCH_PAD_RATIO = 0.3 # 搜索范围外扩比例
+GREEN_TOP_CANDIDATES = 6     # 绿化路线评分候选点数
+GREEN_MAX_WAYPOINTS = 3      # 最大绕行点数
+GVI_SCORE_WEIGHT = 0.6       # GVI 得分权重
+ROUTE_FIT_WEIGHT = 0.4       # 路线适配度权重
+
 # ── 工具函数 ─────────────────────────────────────────────
 
 def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -31,7 +44,7 @@ def route_length(coords: list) -> float:
     return total
 
 
-def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limit_per_segment: int = 30, season: str = "spring") -> dict:
+def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = BUFFER_RADIUS_M, limit_per_segment: int = LIMIT_PER_SEGMENT, season: str = "spring") -> dict:
     """
     沿路线采样 GVI 点。
     对每个路段进行等间隔多点采样（非仅中点），取最近的点。
@@ -48,13 +61,13 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
         lat2, lng2 = coords[i]["lat"], coords[i]["lng"]
         length = haversine(lat1, lng1, lat2, lng2)
 
-        # 等间隔采样：每 200m 一个采样点，至少取中点
-        num_samples = max(1, int(length / 200))
+        # 等间隔采样：每 SAMPLE_INTERVAL_M 一个采样点，至少取中点
+        num_samples = max(1, int(length / SAMPLE_INTERVAL_M))
         sample_fracs = [t / num_samples for t in range(num_samples + 1)]
         # 限制最大采样数防止极长路段查询过多
-        if len(sample_fracs) > 8:
-            step = (len(sample_fracs) - 1) / 7
-            sample_fracs = [round(i * step / (len(sample_fracs) - 1), 4) for i in range(8)]
+        if len(sample_fracs) > MAX_SAMPLES_PER_SEG:
+            step = (len(sample_fracs) - 1) / (MAX_SAMPLES_PER_SEG - 1)
+            sample_fracs = [round(i * step / (len(sample_fracs) - 1), 4) for i in range(MAX_SAMPLES_PER_SEG)]
 
         seg_nearby = []
         for frac in sample_fracs:
@@ -63,8 +76,8 @@ def sample_gvi_along_route(coords: list, db: Session, buffer_m: float = 50, limi
 
             # 矩形粗筛 + Haversine 精确过滤
             cos_lat = math.cos(math.radians(sample_lat))
-            deg_lat = buffer_m * 1.5 / 111320.0
-            deg_lng = buffer_m * 1.5 / (111320.0 * cos_lat) if cos_lat > 0.01 else deg_lat
+            deg_lat = buffer_m * BUFFER_ROUGH_FACTOR / 111320.0
+            deg_lng = buffer_m * BUFFER_ROUGH_FACTOR / (111320.0 * cos_lat) if cos_lat > 0.01 else deg_lat
             rough = (
                 db.query(SamplingPoint)
                 .filter(
@@ -162,7 +175,7 @@ def _season_verdict(spring, summer, autumn, winter):
     }
 
 
-def generate_green_alternative(coords: list, db: Session, season: str = "spring", gvi_threshold: float = 30) -> list:
+def generate_green_alternative(coords: list, db: Session, season: str = "spring", gvi_threshold: float = GREEN_GVI_THRESHOLD) -> list:
     """
     基于采样点 GVI 值，生成一条「更绿」的替代路径。
     策略：在起点到终点的范围内，寻找 GVI 高的区域作为绕行点。
@@ -181,8 +194,8 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
     max_lng = max(start["lng"], end["lng"])
 
     # 扩大搜索范围
-    pad_lat = (max_lat - min_lat) * 0.3
-    pad_lng = (max_lng - min_lng) * 0.3
+    pad_lat = (max_lat - min_lat) * GREEN_SEARCH_PAD_RATIO
+    pad_lng = (max_lng - min_lng) * GREEN_SEARCH_PAD_RATIO
     min_lat -= pad_lat
     max_lat += pad_lat
     min_lng -= pad_lng
@@ -198,7 +211,7 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
             gvi_col > gvi_threshold,
         )
         .order_by(gvi_col.desc())
-        .limit(8)
+        .limit(GREEN_TOP_CANDIDATES)
         .all()
     )
 
@@ -219,7 +232,7 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
         detour_ratio = (dist_to_start + dist_to_end) / max(route_length_est, 1)
         gvi_score = gvi_val / 100.0  # 0~1
         route_score = max(0, 1.0 - (detour_ratio - 1.0) * 0.5)  # Penalize detours
-        score = gvi_score * 0.6 + route_score * 0.4
+        score = gvi_score * GVI_SCORE_WEIGHT + route_score * ROUTE_FIT_WEIGHT
         waypoints.append({"lat": p.lat, "lng": p.lng, "gvi": gvi_val, "score": score})
 
     # Sort by projected score (best first)
@@ -227,11 +240,12 @@ def generate_green_alternative(coords: list, db: Session, season: str = "spring"
 
     # Pick top 2-3 waypoints spread along the route
     # Sort the top candidates by distance to start for path ordering
-    picks = waypoints[:6]  # Pre-select top 6 by score
+    picks = waypoints[:GREEN_TOP_CANDIDATES]  # Pre-select top candidates by score
     picks.sort(key=lambda p: haversine(start["lat"], start["lng"], p["lat"], p["lng"]))
     # From score-sorted candidates, pick spread-out waypoints
+    max_wp = min(GREEN_MAX_WAYPOINTS, len(picks))
     if len(picks) >= 3:
-        picks = [picks[0], picks[len(picks) // 2], picks[-1]]
+        picks = [picks[0], picks[len(picks) // 2], picks[-1]][:max_wp]
     elif len(picks) == 2:
         picks = picks[:2]
     else:

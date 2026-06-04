@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.heat'
@@ -43,6 +43,8 @@ interface GVIMapProps {
   planningMode?: boolean
   /** 当前绘制的路点 */
   routeWaypoints?: RouteCoord[]
+  /** 规划路线的真实路径折线（WGS-84），优先于直线连接 */
+  routePath?: RouteCoord[]
   /** 额外高亮路线坐标 */
   extraRouteCoords?: RouteCoord[]
   /** 额外路线颜色 */
@@ -70,6 +72,7 @@ export default function GVIMap({
   colorScheme = 'gvi',
   planningMode = false,
   routeWaypoints = [],
+  routePath = [],
   extraRouteCoords = [],
   extraRouteColor = '#16a34a',
   onMapClick,
@@ -85,6 +88,9 @@ export default function GVIMap({
   const planningLayer = useRef<L.LayerGroup | null>(null)
   const extraRouteLayer = useRef<L.LayerGroup | null>(null)
   const baseTileRef = useRef<L.TileLayer | null>(null)
+
+  // Force re-render when map container transitions from 0-size to non-zero
+  const [layoutReady, setLayoutReady] = useState(false)
 
   // Refs for values used inside the map-init effect to avoid re-creating the map
   const planningModeRef = useRef(planningMode)
@@ -109,9 +115,10 @@ export default function GVIMap({
 
   const pointById = useRef<Map<number, MapPoint>>(new Map())
   useEffect(() => {
-    pointById.current = new Map(points.map((p) => [p.id, p]))
+    pointById.current = new Map(points.map((p) => [p.point_id, p]))
   }, [points])
 
+  // highlightIds 和 highlightRoute 使用 point_id（业务ID），与 Planning 页一致
   const highlightSet = useRef<Set<number>>(new Set(highlightIds))
   useEffect(() => {
     highlightSet.current = new Set(highlightIds)
@@ -154,42 +161,29 @@ export default function GVIMap({
     }).setView([32.05, 118.78], 11)
     leafletMap.current = map
 
+    // ── Canvas renderer crash guard ──
+    // Leaflet Canvas renderer's _destroyContainer deletes _ctx but already-scheduled
+    // rAF callbacks still invoke _redraw → _clear / _draw, crashing on undefined _ctx.
+    // Patch all three methods at map creation time to guard against null _ctx.
+    const _cr = (map as any)._renderer
+    if (_cr && typeof _cr._clear === 'function' && !(_cr as any).__ctxGuard) {
+      const _origClear = _cr._clear.bind(_cr)
+      const _origDraw = _cr._draw.bind(_cr)
+      const _origRedraw = _cr._redraw.bind(_cr)
+      _cr._clear = function() { if (this._ctx) _origClear() }
+      _cr._draw = function() { if (this._ctx) _origDraw() }
+      _cr._redraw = function() {
+        this._redrawRequest = null
+        if (this._ctx) _origRedraw()
+      }
+      ;(_cr as any).__ctxGuard = true
+    }
+
     // ── 比例尺 ──
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map)
 
-    // ── 底图瓦片 ──
-    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 19,
-    })
-
-    const gaodeLayer = L.tileLayer(
-      'https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7',
-      { subdomains: '1234', attribution: '© 高德地图', maxZoom: 18 },
-    )
-
-    const gaodeSatLayer = L.tileLayer(
-      'https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=6',
-      { subdomains: '1234', attribution: '© 高德地图', maxZoom: 18 },
-    )
-
-    // 底图映射
-    const baseLayers: Record<string, L.TileLayer> = {
-      '🗺 OpenStreetMap': osmLayer,
-      '📍 高德地图': gaodeLayer,
-      '🛰 高德卫星': gaodeSatLayer,
-    }
-    const layerMap: Record<BaseMap, L.TileLayer> = {
-      osm: osmLayer,
-      gaode: gaodeLayer,
-      'gaode-satellite': gaodeSatLayer,
-    }
-
-    // 默认底图
-    layerMap[baseMap].addTo(map)
-
-    // 底图切换控件
-    L.control.layers(baseLayers, undefined, { position: 'topright' }).addTo(map)
+    // ── 底图瓦片由 baseMap Effect 统一管理，此处不再添加 ──
+    // baseTileRef.current 在底图切换 Effect 中设置
 
     markersLayer.current = L.layerGroup().addTo(map)
     highlightLayer.current = L.layerGroup().addTo(map)
@@ -225,13 +219,25 @@ export default function GVIMap({
         const map = leafletMap.current
         try { map.stop(); } catch { /* ignore */ }
 
+        // Canvas renderer: cancel pending rAF (guard already installed at map creation)
+        const renderer = (map as any)._renderer
+        if (renderer && renderer._redrawRequest) {
+          try { L.Util.cancelAnimFrame(renderer._redrawRequest) } catch { /* ignore */ }
+          renderer._redrawRequest = null
+        }
+
         // 手动逐层移除，避免 Canvas renderer 的 _destroyContainer (delete _ctx) 先执行后，
         // 其他 layer 移除时 _removePath → _requestRedraw 调度 rAF 在 _ctx undefined 时崩溃。
-        // preferCanvas=false (SVG renderer) 不受影响，但逐层移除仍是好的实践。
         const allLayers: L.Layer[] = []
         map.eachLayer((layer: L.Layer) => { allLayers.push(layer) })
         for (const layer of allLayers) {
           try { map.removeLayer(layer) } catch { /* already gone */ }
+        }
+
+        // 二次防护：逐层移除后 renderer 可能又调度了新的 rAF，再取消一次
+        if (renderer && renderer._redrawRequest) {
+          try { L.Util.cancelAnimFrame(renderer._redrawRequest) } catch { /* ignore */ }
+          renderer._redrawRequest = null
         }
 
         try { map.remove() } catch { /* ignore */ }
@@ -255,6 +261,13 @@ export default function GVIMap({
     const map = leafletMap.current
     if (!map) return
 
+    // Step 0: Cancel any pending Canvas renderer rAF before mode switch
+    const renderer = (map as any)._renderer
+    if (renderer && renderer._redrawRequest) {
+      try { L.Util.cancelAnimFrame(renderer._redrawRequest) } catch { /* ignore */ }
+      renderer._redrawRequest = null
+    }
+
     // Step 1: Always remove old heat layer first (cancels internal rAF queue)
     if (heatmapLayerRef.current) {
       try { map.removeLayer(heatmapLayerRef.current) } catch { /* already gone */ }
@@ -267,11 +280,9 @@ export default function GVIMap({
     // Guard: canvas must have non-zero dimensions before heatLayer can draw
     const container = map.getContainer()
     if (container.offsetWidth === 0 || container.offsetHeight === 0) {
-      // Container not yet laid out — retry after next paint
-      const handle = requestAnimationFrame(() => {
-        // Re-trigger by no-op; React will re-run this effect on next render
-      })
-      return () => cancelAnimationFrame(handle)
+      // Container not yet laid out — schedule a state-driven retry
+      const timer = setTimeout(() => setLayoutReady((v: boolean) => !v), 100)
+      return () => clearTimeout(timer)
     }
 
     // Hide point markers when in heatmap mode
@@ -340,7 +351,7 @@ export default function GVIMap({
       radius: 35,
       blur: 30,
       maxZoom: 17,
-      minOpacity: 0.2,
+      minOpacity: 0.05,
       max: 1,
       gradient: gradients[colorScheme],
     })
@@ -355,9 +366,10 @@ export default function GVIMap({
         heatmapLayerRef.current = null
       }
     }
-  }, [points, displayMode, toMapCoord, valueRange, colorScheme, season])
+  }, [points, displayMode, toMapCoord, valueRange, colorScheme, season, layoutReady])
 
   // ─── Base map switching (add/remove tile layers without rebuilding map) ──
+  // Also handles initial tile layer setup (replaces old Effect 1 bottom-map logic)
   useEffect(() => {
     const map = leafletMap.current
     if (!map) return
@@ -404,7 +416,7 @@ export default function GVIMap({
     const isZoomedIn = map.getZoom() >= 13  // Only bind popups at zoom 13+
 
     points.forEach((point) => {
-      if (highlightSet.current.has(point.id)) return
+      if (highlightSet.current.has(point.point_id)) return
       const gvi = point.gvi
       if (gvi == null) return
 
@@ -423,15 +435,31 @@ export default function GVIMap({
 
       // Bind popup only when zoomed in to reduce memory for 200K+ points
       if (isZoomedIn) {
+        // Context-aware label based on colorScheme
+        const valueLabel = colorScheme === 'cv' ? '变异系数' : colorScheme === 'r2' ? '局部 R²' : colorScheme === 'diverging' ? '差值' : 'GVI'
+        const valueUnit = colorScheme === 'r2' ? '' : '%'
+        const stabilityNote = colorScheme === 'cv'
+          ? (point.gvi != null && point.gvi < 25 ? '<span style="color:#22c55e">● 稳定</span>' : point.gvi != null && point.gvi < 50 ? '<span style="color:#f59e0b">● 中等波动</span>' : '<span style="color:#ef4444">● 不稳定</span>')
+          : ''
+        const gviLevel = !colorScheme || colorScheme === 'gvi'
+          ? (point.gvi != null && gvi >= 35 ? '<span style="color:#22c55e">● 优良</span>' : point.gvi != null && gvi >= 20 ? '<span style="color:#f59e0b">● 中等</span>' : '<span style="color:#ef4444">● 较低</span>')
+          : ''
+
         circle.bindPopup(`
-          <div style="min-width:180px;font-size:13px">
-            <p><strong>采样点 ${esc(point.id)}</strong></p>
-            <p>GVI: <span style="color:${color};font-weight:600">${gvi.toFixed(2)}%</span></p>
-            <p>NDVI: ${point.ndvi != null ? point.ndvi.toFixed(2) : 'N/A'}</p>
-            <p>道路: ${esc(point.road_type)}</p>
-            <hr style="margin:4px 0;border-color:#eee">
-            <p style="font-size:11px;color:#666">坐标: ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}</p>
-            <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:4px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
+          <div style="min-width:200px;font-size:13px">
+            <p style="margin-bottom:6px"><strong>采样点 ${esc(point.point_id)}</strong></p>
+            <table style="width:100%;font-size:12px;border-spacing:2px">
+              <tr><td style="color:#666">${valueLabel}</td><td style="font-weight:600;color:${color}">${gvi.toFixed(2)}${valueUnit}</td></tr>
+              ${point.ndvi != null ? `<tr><td style="color:#666">NDVI</td><td>${point.ndvi.toFixed(4)}</td></tr>` : ''}
+              <tr><td style="color:#666">道路</td><td>${esc(point.road_type)}</td></tr>
+            </table>
+            ${gviLevel || stabilityNote ? `<p style="margin:6px 0 0;font-size:12px">${gviLevel}${stabilityNote}</p>` : ''}
+            <hr style="margin:6px 0;border-color:#eee">
+            <p style="font-size:11px;color:#666">📍 ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</p>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <p style="font-size:11px;color:#059669;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.point_id}}}))">📸 街景</p>
+              <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.point_id}}}))">🤖 AI分析</p>
+            </div>
           </div>
         `)
       }
@@ -449,7 +477,7 @@ export default function GVIMap({
     if (!highlightLayer.current || !leafletMap.current) return
     highlightLayer.current.clearLayers()
 
-    const highlightPoints = points.filter((p) => highlightSet.current.has(p.id))
+    const highlightPoints = points.filter((p) => highlightSet.current.has(p.point_id))
     if (highlightPoints.length === 0) return
 
     leafletMap.current!.setView([highlightPoints[0].lat, highlightPoints[0].lng], 14, {
@@ -473,17 +501,25 @@ export default function GVIMap({
 
       const marker = L.marker([mLat, mLng], { icon: pulseIcon })
       marker.bindPopup(`
-        <div style="min-width:180px;font-size:13px"><p><strong>📌 薄弱点 ${esc(point.id)}</strong></p>
-          <p>GVI: <span style="color:#dc2626;font-weight:600">${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</span></p>
-          <p>道路: ${esc(point.road_type)}</p>
-          <hr style="margin:4px 0;border-color:#eee">
-          <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.id}}}))">🤖 询问AI关于此点</p>
-          <p style="font-size:11px;color:#059669;cursor:pointer;margin-top:2px" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.id}}}))">📸 查看街景</p>
+        <div style="min-width:200px;font-size:13px">
+          <p style="margin-bottom:6px"><strong>📌 薄弱点 ${esc(point.point_id)}</strong></p>
+          <table style="width:100%;font-size:12px;border-spacing:2px">
+            <tr><td style="color:#666">GVI</td><td style="color:#dc2626;font-weight:600">${point.gvi != null ? point.gvi.toFixed(2) + '%' : 'N/A'}</td></tr>
+            ${point.ndvi != null ? `<tr><td style="color:#666">NDVI</td><td>${point.ndvi.toFixed(4)}</td></tr>` : ''}
+            <tr><td style="color:#666">道路</td><td>${esc(point.road_type)}</td></tr>
+          </table>
+          <p style="margin:6px 0 0;font-size:12px"><span style="color:#ef4444">● 绿化不足</span></p>
+          <hr style="margin:6px 0;border-color:#eee">
+          <p style="font-size:11px;color:#666">📍 ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</p>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <p style="font-size:11px;color:#3b82f6;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-ask-ai',{detail:{pointId:${point.point_id}}}))">🤖 AI分析</p>
+            <p style="font-size:11px;color:#059669;cursor:pointer" onclick="window.dispatchEvent(new CustomEvent('ugvis-streetview',{detail:{pointId:${point.point_id}}}))">📸 街景</p>
+          </div>
         </div>
       `)
 
       if (onHighlightClick) {
-        marker.on('click', () => onHighlightClick(point.id))
+        marker.on('click', () => onHighlightClick(point.point_id))
       }
 
       highlightLayer.current?.addLayer(marker)
@@ -527,7 +563,7 @@ export default function GVIMap({
     })
 
     const bounds = L.latLngBounds(routePoints)
-    leafletMap.current.fitBounds(bounds, { padding: [40, 40], animate: true })
+    leafletMap.current.fitBounds(bounds, { padding: [40, 40], animate: false })
   }, [highlightRoute, toMapCoord])
 
   // ─── Planning waypoints ──────────────────────────────
@@ -563,20 +599,42 @@ export default function GVIMap({
       planningLayer.current?.addLayer(marker)
     })
 
-    // Draw line connecting waypoints
+    // Draw line connecting waypoints — use routePath (real road) if available, else straight line
     if (latlngs.length >= 2) {
-      const polyline = L.polyline(latlngs, {
-        color: '#059669',
-        weight: 4,
-        opacity: 0.8,
+      let polylineCoords: L.LatLng[]
+      if (routePath.length >= 2) {
+        // 真实路网路径折线
+        polylineCoords = routePath.map((p) => {
+          const [mLat, mLng] = toMapCoord(p.lat, p.lng)
+          return L.latLng(mLat, mLng)
+        })
+      } else {
+        // 回退直线
+        polylineCoords = latlngs
+      }
+
+      const isRealPath = routePath.length >= 2
+      const polyline = L.polyline(polylineCoords, {
+        color: isRealPath ? '#059669' : '#f59e0b',  // 真实路径=绿色，直线=橙色(高对比)
+        weight: isRealPath ? 5 : 3,
+        opacity: 0.9,
+        dashArray: isRealPath ? undefined : '8, 6',
       })
       planningLayer.current.addLayer(polyline)
 
-      // Fit waypoints in view
-      const bounds = L.latLngBounds(latlngs)
-      leafletMap.current?.fitBounds(bounds, { padding: [60, 60], animate: true })
+      // 调试日志：确认路线渲染
+      console.log('[GVIMap] 路线绘制:', {
+        waypointCount: routeWaypoints.length,
+        routePathCount: routePath.length,
+        isRealPath,
+        polylinePoints: polylineCoords.length,
+      })
+
+      // Fit route in view
+      const bounds = L.latLngBounds(polylineCoords)
+      leafletMap.current?.fitBounds(bounds, { padding: [60, 60], animate: false })
     }
-  }, [routeWaypoints, toMapCoord])
+  }, [routeWaypoints, routePath, toMapCoord])
 
   // ─── Extra route (green route) ──────────────────────
   useEffect(() => {
@@ -630,11 +688,11 @@ export default function GVIMap({
       return [mLat, mLng] as [number, number]
     }))
     leafletMap.current.fitBounds(bounds, { padding: [20, 20] })
-  }, [points, season, highlightIds, highlightRoute, initialCenter, routeWaypoints, toMapCoord])
+  }, [points, season, highlightIds, highlightRoute, initialCenter, routeWaypoints, routePath, toMapCoord])
 
   return (
-    <div className={`relative h-full ${className}`}>
-      <div ref={mapRef} className='w-full h-full rounded-lg' />
+    <div className={`relative ${className || 'h-96'}`}>
+      <div ref={mapRef} className='absolute inset-0 rounded-lg' />
       {/* GVI Color Legend */}
       <div className='absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-md px-3 py-2 z-[1000] text-xs'>
         {displayMode === 'heatmap' ? (

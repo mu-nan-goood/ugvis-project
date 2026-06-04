@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Download, Upload, Filter, MapPin } from 'lucide-react'
 import type { SamplingPoint, MapPoint, Season } from '../../types'
 import { ROAD_TYPE_LABELS } from '../../types'
 import { fetchPoints, fetchMapPoints } from '../../utils/api'
 import ImportModal from './ImportModal'
 import GVIMap from '../../components/GVIMap'
+import { SkeletonTable } from '../../components/Skeleton'
 
 export default function DataManagement() {
   const [points, setPoints] = useState<SamplingPoint[]>([])
@@ -35,13 +36,17 @@ export default function DataManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roadTypeFilter, debouncedSearch])
 
-  // Load map points when map is shown
+  // Load map points when map is shown (filtered by same road type as table)
   useEffect(() => {
     if (!showMap) return
-    fetchMapPoints({ season, limit: 20000 })
+    const params: { season: Season; limit: number; road_type?: string } = { season, limit: 20000 }
+    if (roadTypeFilter !== 'all') {
+      params.road_type = roadTypeFilter
+    }
+    fetchMapPoints(params)
       .then((data) => setMapPoints(data.points || []))
       .catch(() => setMapPoints([]))
-  }, [showMap, season])
+  }, [showMap, season, roadTypeFilter])
 
   /** 点击表格行：在地图上高亮并居中 */
   function handleRowClick(row: SamplingPoint) {
@@ -184,21 +189,19 @@ export default function DataManagement() {
 
       {/* Error State */}
       {error && (
-        <div className="card bg-red-50 border-red-200">
-          <p className="text-red-600">加载失败: {error}</p>
+        <div className="card bg-danger-50 dark:bg-danger-900/20 border-danger-200 dark:border-danger-800">
+          <p className="text-danger-600 dark:text-danger-400">加载失败: {error}</p>
         </div>
       )}
 
       {/* Map + Table Layout */}
       {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600" />
-        </div>
+        <SkeletonTable rows={6} />
       ) : (
         <div className={`grid gap-6 ${showMap ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           {/* Map Panel */}
           {showMap && (
-            <div className="card p-2" style={{ height: 500 }}>
+            <div className="card p-2 sticky top-4 self-start" style={{ height: 500 }}>
               <GVIMap
                 points={mapPoints}
                 season={season}
@@ -206,7 +209,7 @@ export default function DataManagement() {
                 preferCanvas={false}
                 highlightIds={highlightIds}
                 initialCenter={mapCenter}
-                className="rounded-lg"
+                className="h-full rounded-lg"
               />
             </div>
           )}
@@ -233,7 +236,7 @@ export default function DataManagement() {
                 <tbody>
                   {points.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="text-center py-8 text-gray-400">
+                      <td colSpan={12} className="text-center py-8 text-surface-400">
                         暂无数据
                       </td>
                     </tr>
@@ -270,7 +273,7 @@ export default function DataManagement() {
 
             {/* Pagination */}
             <div className="flex items-center justify-between p-4 border-t">
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-surface-400 dark:text-surface-500">
                 第 {page * pageSize + 1} - {Math.min((page + 1) * pageSize, total)} 条 / 共 {total.toLocaleString()} 条
                 {debouncedSearch && (
                   <span className="ml-2 text-primary-600">

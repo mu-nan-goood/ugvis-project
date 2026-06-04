@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { RouteCoord, RouteAnalysis, SegmentGVI, Season } from '../types'
 import { SEASON_LABELS } from '../types'
 import { analyzeRoute, compareRoutes } from '../utils/api'
+import { planRoute, type PlannedRoute } from '../utils/routePlanner'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -170,6 +171,8 @@ interface Props {
   onRouteChange: (coords: RouteCoord[]) => void
   /** 分析完成时，返回更绿路线坐标（用于在地图上绘制） */
   onGreenRouteFound?: (coords: RouteCoord[]) => void
+  /** 路线规划完成时，返回真实路径折线坐标（用于地图渲染） */
+  onRoutePlanned?: (pathCoords: RouteCoord[]) => void
 }
 
 export default function RouteAnalysisPanel({
@@ -180,6 +183,7 @@ export default function RouteAnalysisPanel({
   onClear,
   onRouteChange,
   onGreenRouteFound,
+  onRoutePlanned,
 }: Props) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<RouteAnalysis | null>(null)
@@ -190,6 +194,8 @@ export default function RouteAnalysisPanel({
     lengthDiff: number
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [plannedRoute, setPlannedRoute] = useState<PlannedRoute | null>(null)
+  const [routeMode, setRouteMode] = useState<'walk' | 'straight'>('walk')
 
   // Notify parent when waypoints change
   useEffect(() => {
@@ -202,12 +208,37 @@ export default function RouteAnalysisPanel({
     setError(null)
     setResult(null)
     setGreenResult(null)
+    setPlannedRoute(null)
     try {
+      // Step 1: 路线规划（仅在步行导航模式下调用高德 API）
+      let route: PlannedRoute | null = null
+      if (routeMode === 'walk') {
+        try {
+          route = await planRoute(waypoints.map((w) => ({ lat: w.lat, lng: w.lng })))
+          setPlannedRoute(route)
+        } catch (routeErr) {
+          console.warn('[RouteAnalysisPanel] 路线规划失败，回退直线模式', routeErr)
+        }
+      }
+
+      // 用真实路径坐标作为后端分析的输入（步行模式+规划成功），否则用路点直线
+      const analysisCoords = route?.pathCoords || waypoints.map((w) => ({ lat: w.lat, lng: w.lng }))
+
+      // 通知地图渲染真实路径
+      console.log('[RouteAnalysisPanel] onRoutePlanned 传入:', {
+        coordCount: analysisCoords.length,
+        firstCoord: analysisCoords[0],
+        lastCoord: analysisCoords[analysisCoords.length - 1],
+        routeMode,
+        hadPlannedRoute: !!route,
+      })
+      onRoutePlanned?.(analysisCoords)
+
+      // Step 2: GVI 分析（并行请求）
       const coords = waypoints.map((w) => ({ lat: w.lat, lng: w.lng }))
 
-      // Both calls in parallel
       const [analysis, comparison] = await Promise.all([
-        analyzeRoute(coords, season),
+        analyzeRoute(analysisCoords, season),
         compareRoutes(coords, season),
       ])
 
@@ -278,6 +309,28 @@ export default function RouteAnalysisPanel({
         </p>
       )}
 
+      {/* 路线规划模式提示 */}
+      {waypoints.length >= 2 && !result && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+          <span>🚶 路线模式：</span>
+          <button
+            onClick={() => setRouteMode('walk')}
+            className={`px-2 py-0.5 rounded ${routeMode === 'walk' ? 'bg-green-100 text-green-700 font-medium' : 'hover:bg-gray-100'}`}
+          >
+            步行导航
+          </button>
+          <button
+            onClick={() => setRouteMode('straight')}
+            className={`px-2 py-0.5 rounded ${routeMode === 'straight' ? 'bg-gray-200 text-gray-700 font-medium' : 'hover:bg-gray-100'}`}
+          >
+            直线连接
+          </button>
+          {routeMode === 'walk' && !import.meta.env.VITE_AMAP_KEY && (
+            <span className="text-amber-600">⚠️ 需配置 VITE_AMAP_KEY</span>
+          )}
+        </div>
+      )}
+
       {/* 路点列表 */}
       {waypoints.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -304,6 +357,16 @@ export default function RouteAnalysisPanel({
       {/* 结果展示 */}
       {result && (
         <div className="border-t pt-4 space-y-3">
+          {/* 路线规划信息 */}
+          {plannedRoute && (
+            <div className="flex items-center gap-3 text-xs bg-blue-50 rounded-lg px-3 py-2">
+              <span>🚶 步行路线</span>
+              <span className="text-blue-700 font-medium">{formatDist(plannedRoute.distance)}</span>
+              <span>约 {Math.ceil(plannedRoute.duration / 60)} 分钟</span>
+              <span className="text-gray-400">{plannedRoute.pathCoords.length} 个路径点</span>
+            </div>
+          )}
+
           {/* 路线统计 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-gray-50 rounded-lg p-3 text-center">

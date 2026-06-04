@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { TreePine } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 
 export default function Auth() {
@@ -73,28 +74,34 @@ export default function Auth() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-surface-50 dark:bg-surface-950 flex items-center justify-center px-4">
+      <div className="w-full max-w-md animate-slide-up">
+        {/* Brand Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-primary-600">UGVIS</h1>
-          <p className="text-gray-500 mt-2">城市绿视率分析系统</p>
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 shadow-lift mb-4">
+            <TreePine className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-surface-900 dark:text-surface-50 tracking-tight">UGVIS</h1>
+          <p className="text-sm text-surface-500 dark:text-surface-400 mt-1">城市绿视率智能规划系统</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border p-8">
+        {/* Auth Card */}
+        <div className="bg-white dark:bg-surface-900 rounded-2xl shadow-card border border-surface-200/60 dark:border-surface-700/60 p-8">
           {reason === 'session_expired' && (
-            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+            <div className="mb-4 p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-700 dark:text-warning-300">
               登录已过期，请重新登录
             </div>
           )}
 
-          <div className="flex mb-6 border-b">
+          {/* Login / Register Tabs */}
+          <div className="flex mb-6 border-b border-surface-200 dark:border-surface-700">
             <button
               type="button"
               onClick={() => { setIsLogin(true); setError('') }}
-              className={`flex-1 pb-3 text-center font-medium border-b-2 transition-colors ${
+              className={`flex-1 pb-3 text-center text-sm font-medium border-b-2 transition-colors ${
                 isLogin
-                  ? 'border-primary-600 text-primary-700'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                  ? 'border-primary-600 text-primary-700 dark:text-primary-400'
+                  : 'border-transparent text-surface-400 hover:text-surface-600 dark:hover:text-surface-300'
               }`}
             >
               登录
@@ -102,10 +109,10 @@ export default function Auth() {
             <button
               type="button"
               onClick={() => { setIsLogin(false); setError('') }}
-              className={`flex-1 pb-3 text-center font-medium border-b-2 transition-colors ${
+              className={`flex-1 pb-3 text-center text-sm font-medium border-b-2 transition-colors ${
                 !isLogin
-                  ? 'border-primary-600 text-primary-700'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                  ? 'border-primary-600 text-primary-700 dark:text-primary-400'
+                  : 'border-transparent text-surface-400 hover:text-surface-600 dark:hover:text-surface-300'
               }`}
             >
               注册
@@ -114,14 +121,14 @@ export default function Auth() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">
                 用户名
               </label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                className="input"
                 placeholder="输入用户名"
                 autoComplete="username"
               />
@@ -129,14 +136,14 @@ export default function Auth() {
 
             {!isLogin && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">
                   邮箱
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                  className="input"
                   placeholder="输入邮箱"
                   autoComplete="email"
                 />
@@ -144,14 +151,14 @@ export default function Auth() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">
                 密码
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                className="input"
                 placeholder="输入密码"
                 autoComplete={isLogin ? 'current-password' : 'new-password'}
               />
@@ -159,14 +166,14 @@ export default function Auth() {
 
             {!isLogin && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">
                   确认密码
                 </label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                  className="input"
                   placeholder="再次输入密码"
                   autoComplete="new-password"
                 />
@@ -174,7 +181,7 @@ export default function Auth() {
             )}
 
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <div className="p-3 bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 rounded-lg text-sm text-danger-700 dark:text-danger-300">
                 {error}
               </div>
             )}
@@ -182,20 +189,20 @@ export default function Auth() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="btn-primary w-full py-2.5"
             >
               {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t text-center text-sm text-gray-500">
+          <div className="mt-6 pt-6 border-t border-surface-200 dark:border-surface-700 text-center text-sm text-surface-500 dark:text-surface-400">
             {isLogin ? (
               <>
                 还没有账号？{' '}
                 <button
                   type="button"
                   onClick={() => { setIsLogin(false); setError('') }}
-                  className="text-primary-600 hover:underline"
+                  className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
                 >
                   立即注册
                 </button>
@@ -206,7 +213,7 @@ export default function Auth() {
                 <button
                   type="button"
                   onClick={() => { setIsLogin(true); setError('') }}
-                  className="text-primary-600 hover:underline"
+                  className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
                 >
                   登录
                 </button>
@@ -215,8 +222,8 @@ export default function Auth() {
           </div>
         </div>
 
-        <div className="mt-6 text-center text-sm text-gray-400">
-          <a href="/" className="hover:text-gray-600">← 返回首页</a>
+        <div className="mt-6 text-center text-sm text-surface-400 dark:text-surface-500">
+          <a href="/" className="hover:text-surface-600 dark:hover:text-surface-300 transition-colors">← 返回首页</a>
         </div>
       </div>
     </div>

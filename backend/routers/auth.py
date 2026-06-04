@@ -118,7 +118,12 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
 @router.post("/refresh", response_model=Token, summary="Refresh access token")
 @limiter.limit("10/minute")
 def refresh_token(request: Request, token_data: TokenRefreshRequest, db: Session = Depends(get_db)):
-    """刷新 Access Token"""
+    """刷新 Access Token。
+    
+    安全提示：返回的新 refresh_token 应由前端安全存储（httpOnly cookie 或 sessionStorage），
+    并在收到后立即销毁旧 refresh_token，防止 Token 重放攻击。
+    当前为 MVP 无状态设计，未实现服务端令牌吊销。
+    """
     payload = decode_token(token_data.refresh_token)
     if payload is None:
         raise HTTPException(
@@ -158,9 +163,14 @@ def get_me(current_user: UserResponse = Depends(get_current_user)):
 
 @router.post("/logout", summary="Logout (client-side token removal)")
 def logout(current_user: UserResponse = Depends(get_current_user)):
-    """用户登出（客户端清除 Token 即可，服务端无需吊销）"""
+    """用户登出。
+    
+    已知限制：当前为 JWT 无状态设计，服务端不维护令牌黑名单。
+    客户端应清除所有存储的 token（access + refresh）。
+    若需服务端吊销，需引入 Redis/DB 黑名单机制（生产环境建议）。
+    """
     logger.info(f"用户登出: {current_user.username}")
-    return {"message": "已登出"}
+    return {"message": "已登出，请清除客户端存储的 Token"}
 
 
 @router.post("/password/change", response_model=UserResponse, summary="Change current user password")

@@ -71,6 +71,7 @@ export interface SamplingPointList {
 
 export interface MapPoint {
   id: number
+  point_id: number
   lat: number
   lng: number
   gvi: number | null

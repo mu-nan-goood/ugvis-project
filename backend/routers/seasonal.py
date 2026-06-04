@@ -1,6 +1,7 @@
 """backend/routers/seasonal.py"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database import get_db
 from models import SamplingPoint
 from schemas import SeasonalAnalysisResponse, BoxplotData, SeasonalSummary, CVPoint, StabilityStats
@@ -15,6 +16,44 @@ _SEASONS_MAP = {
     "autumn": SamplingPoint.gvi_autumn,
     "winter": SamplingPoint.gvi_winter,
 }
+
+
+@router.get("/map", summary="Get seasonal GVI map points for a specific season")
+async def get_seasonal_map(
+    season: str = Query("spring", description="Season: spring/summer/autumn/winter"),
+    sample_size: int = Query(3000, description="Max number of map points", ge=500, le=5000),
+    db: Session = Depends(get_db),
+):
+    """返回指定季节的GVI地图散点数据，用于四季地图Tab"""
+    season_key = season.lower()
+    if season_key not in ("spring", "summer", "autumn", "winter"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid season: {season}")
+
+    gvi_col = _SEASONS_MAP[season_key]
+
+    import random
+    total = db.query(func.count(SamplingPoint.id)).filter(gvi_col != None).scalar()
+    offset = random.randint(0, max(0, total - sample_size))
+
+    rows = (
+        db.query(
+            SamplingPoint.lat,
+            SamplingPoint.lng,
+            gvi_col.label("gvi"),
+            SamplingPoint.road_type,
+        )
+        .filter(gvi_col != None)
+        .offset(offset)
+        .limit(sample_size)
+        .all()
+    )
+
+    points = [
+        {"lat": round(r.lat, 6), "lng": round(r.lng, 6), "gvi": round(r.gvi, 2), "road_type": r.road_type}
+        for r in rows
+    ]
+    return {"season": season_key, "points": points, "total_available": total}
 
 
 @router.get("/analysis", response_model=SeasonalAnalysisResponse, summary="Get seasonal GVI/NDVI analysis by road type")

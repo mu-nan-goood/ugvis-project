@@ -212,7 +212,8 @@ _reg(
     "get_weak_areas",
     "Get weak green areas (GVI < 10%) from the database. Use this when the user asks about weak areas, "
     "low green coverage zones, areas needing improvement, or wants to list specific locations with low GVI. "
-    "Supports filtering by season, priority level, and GVI threshold.",
+    "Supports filtering by season, priority level, and minimum GVI threshold. "
+    "Do NOT pass any parameters not listed below (e.g. no max_gvi parameter exists).",
     {
         "type": "object",
         "properties": {
@@ -230,7 +231,7 @@ _reg(
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100,
-                "description": "Minimum GVI value"
+                "description": "Minimum GVI value to include (lower bound filter)"
             },
             "limit": {
                 "type": "integer",
@@ -295,14 +296,27 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
 
 
 def execute_tool(name: str, arguments: Dict, db) -> ToolResult:
-    """Execute a tool by name with given arguments."""
+    """Execute a tool by name with given arguments.
+
+    Filters out unknown parameters that LLM may hallucinate (e.g. max_gvi)
+    to avoid TypeError on function call.
+    """
+    import inspect
+
     if name not in TOOL_REGISTRY:
         return ToolResult(success=False, error=f"Unknown tool: {name}")
     try:
         tool = TOOL_REGISTRY[name]
-        result = tool.execute_fn(db, **arguments)
+        # Filter out arguments not in the function signature
+        sig = inspect.signature(tool.execute_fn)
+        valid_params = set(sig.parameters.keys())
+        filtered_args = {k: v for k, v in arguments.items() if k in valid_params}
+        if set(arguments.keys()) - valid_params:
+            import logging
+            logging.getLogger(__name__).debug(
+                f"[FC] Tool '{name}' received unknown args: {set(arguments.keys()) - valid_params}, filtered out"
+            )
+        result = tool.execute_fn(db, **filtered_args)
         return result
-    except TypeError as e:
-        return ToolResult(success=False, error=f"Invalid arguments for {name}: {str(e)}")
     except Exception as e:
         return ToolResult(success=False, error=str(e))

@@ -92,7 +92,7 @@ export default function AIChatDrawer({
     // B20 fix: track streaming expert message indices for in-place updates
     const streamingExpertIdx: Record<string, number> = {}
     try {
-      const history = currentMessages.filter((m) => m.role !== 'system')
+      const history = currentMessages.filter((m) => m.role === 'user' || m.role === 'assistant')
       for await (const event of streamExpertPanel({
         message: userMsg.content,
         history,
@@ -199,7 +199,7 @@ export default function AIChatDrawer({
     const currentMessages = [...messages, userMsg]
     const toolCalls: Array<{ name: string; arguments: Record<string, unknown>; result?: unknown }> = []
     try {
-      const history = currentMessages.filter((m) => m.role !== 'system')
+      const history = currentMessages.filter((m) => m.role === 'user' || m.role === 'assistant')
       for await (const event of streamChat({
         message: userMsg.content,
         history,

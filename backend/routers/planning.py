@@ -410,8 +410,8 @@ async def chat_stream(
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            logger.error(f"Chat stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': '服务器内部错误，请稍后重试'}, ensure_ascii=False)}\n\n"
+            logger.error(f"Chat stream error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'content': f'服务器内部错误：{str(e)[:200]}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

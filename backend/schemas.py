@@ -144,6 +144,27 @@ class AnalysisResponse(BaseModel):
     local_r2_points: List[LocalR2Point]
     total_points_used: int
 
+
+class ScatterPoint(BaseModel):
+    ndvi: float
+    gvi: float
+    road_type: Optional[str] = None
+
+
+class RegressionLine(BaseModel):
+    model_type: str
+    slope: float
+    intercept: float
+    r2: float
+    color: str
+
+
+class ScatterResponse(BaseModel):
+    points: List[ScatterPoint]
+    regression_lines: List[RegressionLine]
+    total_available: int
+
+
 # === 规划决策相关 ===
 
 class WeakArea(BaseModel):

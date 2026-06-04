@@ -36,24 +36,8 @@ function loadScript(id: string, src: string): Promise<void> {
   return promise
 }
 
-// ─── AMap Panorama ──────────────────────────────────────────────────────
-declare const AMap: {
-  Panorama: new (
-    container: string | HTMLElement,
-    opts?: { position?: [number, number]; fov?: number; heading?: number; pitch?: number }
-  ) => { destroy: () => void }
-}
-
-async function loadAmapApi(): Promise<void> {
-  if ((window as unknown as Record<string, unknown>)['AMap']) return
-  if (!AMAP_KEY) throw new Error('VITE_AMAP_KEY not configured')
-  await loadScript(
-    'amap-js-api',
-    `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}&plugin=AMap.Panorama`,
-  )
-}
-
 // ─── Baidu Panorama ────────────────────────────────────────────────────
+// 百度地图 JS API 3.0 仍然支持 BMap.Panorama 嵌入式全景
 declare const BMap: {
   Point: new (lng: number, lat: number) => unknown
   Panorama: new (
@@ -86,7 +70,7 @@ export default function StreetViewPanel({ point, onClose }: Props) {
   const [provider, setProvider] = useState<Provider>('amap')
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
-  const panoramaRef = useRef<unknown>(null) // AMap.Panorama or BMap.Panorama instance
+  const panoramaRef = useRef<unknown>(null) // BMap.Panorama instance
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Convert coordinates once
@@ -106,7 +90,7 @@ export default function StreetViewPanel({ point, onClose }: Props) {
     }
   }, [coords])
 
-  // Cleanup panorama instance
+  // Cleanup panorama instance (百度)
   const destroyPanorama = () => {
     if (panoramaRef.current) {
       try {
@@ -128,30 +112,26 @@ export default function StreetViewPanel({ point, onClose }: Props) {
     // Clear container
     containerRef.current.textContent = ''
 
+    if (provider === 'amap') {
+      // 高德街景：使用 iframe 嵌入（高德 JS API 2.0 已移除 AMap.Panorama）
+      // 直接用高德街景网页 URL 嵌入 iframe
+      setLoadState('ready')
+      return
+    }
+
+    // 百度街景：使用 BMap.Panorama 嵌入式全景
     const init = async () => {
       try {
-        if (provider === 'amap') {
-          await loadAmapApi()
-          if (!containerRef.current) return
-          const panorama = new AMap.Panorama(containerRef.current, {
-            position: [coords.gcjLng, coords.gcjLat],
-            fov: 90,
-            heading: 0,
-            pitch: 0,
-          })
-          panoramaRef.current = panorama
-        } else {
-          await loadBaiduApi()
-          if (!containerRef.current) return
-          const panorama = new BMap.Panorama(containerRef.current, {
-            navigationControl: true,
-            linksControl: true,
-            addressControl: false,
-          })
-          panorama.setPosition(new BMap.Point(coords.bdLng, coords.bdLat))
-          panorama.enableScrollWheelZoom()
-          panoramaRef.current = panorama
-        }
+        await loadBaiduApi()
+        if (!containerRef.current) return
+        const panorama = new BMap.Panorama(containerRef.current, {
+          navigationControl: true,
+          linksControl: true,
+          addressControl: false,
+        })
+        panorama.setPosition(new BMap.Point(coords.bdLng, coords.bdLat))
+        panorama.enableScrollWheelZoom()
+        panoramaRef.current = panorama
         setLoadState('ready')
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -189,6 +169,11 @@ export default function StreetViewPanel({ point, onClose }: Props) {
 
   const hasKey = provider === 'amap' ? !!AMAP_KEY : !!BAIDU_AK
 
+  // 高德街景 iframe URL
+  const amapIframeUrl = coords
+    ? `https://www.amap.com/?lng=${coords.gcjLng.toFixed(6)}&lat=${coords.gcjLat.toFixed(6)}&z=18`
+    : ''
+
   return (
     <div className="fixed inset-0 z-[2000] flex">
       {/* 遮罩 */}
@@ -200,7 +185,7 @@ export default function StreetViewPanel({ point, onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
           <div>
             <h3 className="text-lg font-bold text-gray-800">
-              📸 采样点 {point.id} 街景
+              📸 采样点 {point.point_id} 街景
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               WGS-84: {point.lat.toFixed(5)}, {point.lng.toFixed(5)}
@@ -273,36 +258,68 @@ export default function StreetViewPanel({ point, onClose }: Props) {
 
         {/* ── 街景内容 ── */}
         <div className="flex-1 flex flex-col min-h-0 relative">
-          {!hasKey ? (
-            /* No API key configured — show guidance + fallback */
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-400 px-6">
-              <div className="text-5xl mb-4">🔑</div>
-              <p className="text-sm mb-1 font-medium text-gray-600">
-                {provider === 'amap' ? '高德' : '百度'}街景 API Key 未配置
-              </p>
-              <p className="text-xs text-gray-400 mb-4 text-center">
-                {provider === 'amap' ? (
-                  <>
+          {provider === 'amap' ? (
+            /* 高德街景：iframe 嵌入（JS API 2.0 已移除 AMap.Panorama） */
+            <div className="flex-1 flex flex-col">
+              {hasKey ? (
+                <>
+                  <div className="flex-1 relative">
+                    <iframe
+                      src={amapIframeUrl}
+                      className="w-full h-full border-0"
+                      style={{ minHeight: '400px' }}
+                      title="高德街景"
+                      sandbox="allow-scripts allow-same-origin allow-popups"
+                    />
+                  </div>
+                  <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200 text-xs text-yellow-700 text-center">
+                    💡 提示：高德 JS API 2.0 已移除街景组件，当前为网页嵌入模式。
+                    如需完整街景交互，请在新标签页打开或切换到百度街景。
+                  </div>
+                </>
+              ) : (
+                /* No API key configured — show guidance + fallback */
+                <div className="flex-1 flex flex-col items-center justify-center text-gray-400 px-6">
+                  <div className="text-5xl mb-4">🔑</div>
+                  <p className="text-sm mb-1 font-medium text-gray-600">
+                    高德街景 API Key 未配置
+                  </p>
+                  <p className="text-xs text-gray-400 mb-4 text-center">
                     请在 <code className="bg-gray-100 px-1 rounded">.env</code> 中设置{' '}
                     <code className="bg-gray-100 px-1 rounded">VITE_AMAP_KEY</code>
                     <br />申请地址：
                     <a href="https://console.amap.com/dev/key/app" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
                       console.amap.com
                     </a>
-                  </>
-                ) : (
-                  <>
-                    请在 <code className="bg-gray-100 px-1 rounded">.env</code> 中设置{' '}
-                    <code className="bg-gray-100 px-1 rounded">VITE_BAIDU_AK</code>
-                    <br />申请地址：
-                    <a href="https://lbsyun.baidu.com/apiconsole/key" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
-                      lbsyun.baidu.com
-                    </a>
-                  </>
-                )}
+                  </p>
+                  <a
+                    href={fallbackUrls.amap}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-600 text-white hover:bg-gray-700 transition-colors"
+                  >
+                    在新标签页打开街景 →
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : !hasKey ? (
+            /* 百度 Key 未配置 */
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-400 px-6">
+              <div className="text-5xl mb-4">🔑</div>
+              <p className="text-sm mb-1 font-medium text-gray-600">
+                百度街景 API Key 未配置
+              </p>
+              <p className="text-xs text-gray-400 mb-4 text-center">
+                请在 <code className="bg-gray-100 px-1 rounded">.env</code> 中设置{' '}
+                <code className="bg-gray-100 px-1 rounded">VITE_BAIDU_AK</code>
+                <br />申请地址：
+                <a href="https://lbsyun.baidu.com/apiconsole/key" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+                  lbsyun.baidu.com
+                </a>
               </p>
               <a
-                href={fallbackUrls[provider]}
+                href={fallbackUrls.baidu}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-600 text-white hover:bg-gray-700 transition-colors"
@@ -311,7 +328,7 @@ export default function StreetViewPanel({ point, onClose }: Props) {
               </a>
             </div>
           ) : loadState === 'error' ? (
-            /* API load error */
+            /* 百度 API load error */
             <div className="flex-1 flex flex-col items-center justify-center text-gray-400 px-6">
               <div className="text-5xl mb-4">⚠️</div>
               <p className="text-sm mb-1 font-medium text-gray-600">街景加载失败</p>
@@ -321,17 +338,16 @@ export default function StreetViewPanel({ point, onClose }: Props) {
                   onClick={() => {
                     setLoadState('loading')
                     setErrorMsg('')
-                    // Force re-init by changing provider briefly
-                    const other: Provider = provider === 'amap' ? 'baidu' : 'amap'
-                    setProvider(other)
-                    setTimeout(() => setProvider(provider), 50)
+                    // Force re-init by toggling provider
+                    setProvider('amap')
+                    setTimeout(() => setProvider('baidu'), 50)
                   }}
                   className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                 >
                   重试
                 </button>
                 <a
-                  href={fallbackUrls[provider]}
+                  href={fallbackUrls.baidu}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-600 text-white hover:bg-gray-700 transition-colors"
@@ -341,15 +357,13 @@ export default function StreetViewPanel({ point, onClose }: Props) {
               </div>
             </div>
           ) : (
-            /* Panorama container */
+            /* 百度 Panorama container */
             <>
               {loadState === 'loading' && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
                   <div className="flex flex-col items-center text-gray-400">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-3" />
-                    <p className="text-sm">
-                      正在加载{provider === 'amap' ? '高德' : '百度'}街景...
-                    </p>
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-600 mb-3" />
+                    <p className="text-sm">正在加载百度街景...</p>
                   </div>
                 </div>
               )}
@@ -370,7 +384,7 @@ export default function StreetViewPanel({ point, onClose }: Props) {
             rel="noopener noreferrer"
             className="flex-1 text-center py-2.5 rounded-lg text-sm font-medium transition-colors bg-gray-200 text-gray-600 hover:bg-gray-300"
           >
-            在新标签页打开 →
+            在新标签页打开街景 →
           </a>
           <button
             onClick={onClose}

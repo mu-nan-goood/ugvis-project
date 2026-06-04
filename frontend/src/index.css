@@ -2,22 +2,294 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Google Fonts: Inter + Noto Sans SC ─────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+
 @layer base {
+  html {
+    font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    background-color: #f8fafc;   /* surface-50 */
+    color: #0f172a;              /* surface-900 */
+  }
+
+  .dark body {
+    background-color: #020617;   /* surface-950 */
+    color: #f1f5f9;              /* surface-100 */
   }
 }
 
 @layer components {
+  /* ─── Card ──────────────────────────────────────── */
   .card {
-    @apply bg-white rounded-lg shadow-md p-6;
+    background-color: #ffffff;
+    border-radius: 0.5rem;       /* rounded-lg */
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.04);  /* shadow-card */
+    padding: 1.5rem;             /* p-6 */
+    border: 1px solid rgb(226 232 240 / 0.6);  /* border-surface-200/60 */
+    transition: box-shadow 0.2s;
   }
-  
+  .card:hover {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);  /* shadow-float */
+  }
+  .dark .card {
+    background-color: #1e293b;   /* surface-800 */
+    border-color: rgb(51 65 85 / 0.6);  /* surface-700/60 */
+  }
+
+  /* ─── Buttons ──────────────────────────────────── */
   .btn-primary {
-    @apply px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors;
+    padding: 0.5rem 1rem;
+    background-color: #059669;    /* primary-600 */
+    color: #ffffff;
+    border-radius: 0.375rem;     /* rounded-md */
+    font-weight: 500;
+    transition: all 0.15s;
   }
-  
+  .btn-primary:hover {
+    background-color: #047857;   /* primary-700 */
+  }
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+  .btn-primary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(16 185 129 / 0.4);  /* ring-primary-500/40 */
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .btn-secondary {
-    @apply px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors;
+    padding: 0.5rem 1rem;
+    background-color: #f1f5f9;   /* surface-100 */
+    color: #334155;              /* surface-700 */
+    border-radius: 0.375rem;
+    font-weight: 500;
+    border: 1px solid rgb(203 213 225 / 0.6);  /* surface-300/60 */
+    transition: all 0.15s;
   }
+  .btn-secondary:hover {
+    background-color: #e2e8f0;   /* surface-200 */
+  }
+  .btn-secondary:active {
+    transform: scale(0.98);
+  }
+  .btn-secondary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(148 163 184 / 0.3);  /* ring-surface-400/30 */
+  }
+  .dark .btn-secondary {
+    background-color: #334155;   /* surface-700 */
+    color: #e2e8f0;              /* surface-200 */
+    border-color: #475569;       /* surface-600 */
+  }
+  .dark .btn-secondary:hover {
+    background-color: #475569;   /* surface-600 */
+  }
+
+  .btn-danger {
+    padding: 0.5rem 1rem;
+    background-color: #dc2626;   /* danger-600 */
+    color: #ffffff;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-danger:hover {
+    background-color: #b91c1c;   /* danger-700 */
+  }
+  .btn-danger:active {
+    transform: scale(0.98);
+  }
+  .btn-danger:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(239 68 68 / 0.4);
+  }
+
+  .btn-ghost {
+    padding: 0.5rem 1rem;
+    color: #475569;              /* surface-600 */
+    border-radius: 0.375rem;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-ghost:hover {
+    background-color: #f1f5f9;   /* surface-100 */
+  }
+  .btn-ghost:active {
+    transform: scale(0.98);
+  }
+  .dark .btn-ghost {
+    color: #cbd5e1;              /* surface-300 */
+  }
+  .dark .btn-ghost:hover {
+    background-color: #1e293b;   /* surface-800 */
+  }
+
+  /* ─── Input ────────────────────────────────────── */
+  .input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid #cbd5e1;   /* surface-300 */
+    background-color: #ffffff;
+    color: #0f172a;              /* surface-900 */
+    transition: all 0.15s;
+  }
+  .input::placeholder {
+    color: #94a3b8;              /* surface-400 */
+  }
+  .input:focus {
+    outline: none;
+    border-color: #10b981;       /* primary-500 */
+    box-shadow: 0 0 0 2px rgb(16 185 129 / 0.4);  /* ring-primary-500/40 */
+  }
+  .dark .input {
+    background-color: #1e293b;   /* surface-800 */
+    border-color: #475569;       /* surface-600 */
+    color: #f1f5f9;              /* surface-100 */
+  }
+  .dark .input::placeholder {
+    color: #64748b;              /* surface-500 */
+  }
+  .dark .input:focus {
+    border-color: #34d399;       /* primary-400 */
+    box-shadow: 0 0 0 2px rgb(52 211 153 / 0.4);
+  }
+
+  /* ─── Badge ────────────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.125rem;     /* rounded-sm */
+    font-size: 0.625rem;         /* text-2xs = 10px */
+    line-height: 0.875rem;
+    font-weight: 500;
+  }
+  .badge-success {
+    background-color: #dcfce7;   /* success-100 */
+    color: #15803d;              /* success-700 */
+  }
+  .badge-warning {
+    background-color: #fef3c7;   /* warning-100 */
+    color: #b45309;              /* warning-700 */
+  }
+  .badge-danger {
+    background-color: #fee2e2;   /* danger-100 */
+    color: #b91c1c;              /* danger-700 */
+  }
+  .badge-info {
+    background-color: #dbeafe;   /* info-100 */
+    color: #1d4ed8;              /* info-700 */
+  }
+
+  /* ─── Stat Card ────────────────────────────────── */
+  .stat-card {
+    background-color: #ffffff;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    padding: 1rem;
+    border: 1px solid rgb(226 232 240 / 0.6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: box-shadow 0.2s;
+  }
+  .stat-card .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+  .stat-card .stat-label {
+    font-size: 0.75rem;
+    color: #64748b;              /* surface-500 */
+    margin-top: 0.25rem;
+  }
+}
+
+/* ─── Scrollbar (webkit) ────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;     /* surface-300 */
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;     /* surface-400 */
+}
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #475569;     /* surface-600 */
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: #64748b;     /* surface-500 */
+}
+
+/* ─── Leaflet Map Overrides ──────────────────────────────────── */
+.leaflet-container {
+  font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif !important;
+}
+
+/* ─── Micro-interactions ─────────────────────────────────────── */
+
+/* Press scale for interactive elements */
+.press-scale {
+  transition: transform 0.1s ease;
+}
+.press-scale:active {
+  transform: scale(0.97);
+}
+
+/* Hover lift for cards */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+}
+.dark .hover-lift:hover {
+  box-shadow: 0 8px 25px -5px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
+}
+
+/* Focus ring animation */
+.focus-ring {
+  transition: box-shadow 0.15s ease;
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(5 150 105 / 0.4);
+}
+.dark .focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #0f172a, 0 0 0 4px rgb(52 211 153 / 0.4);
+}
+
+/* Tooltip fade-in */
+.tooltip-enter {
+  animation: tooltip-fade 0.15s ease-out;
+}
+@keyframes tooltip-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Number highlight flash */
+.num-flash {
+  animation: num-highlight 0.6s ease-out;
+}
+@keyframes num-highlight {
+  0% { background-color: rgb(5 150 105 / 0.2); }
+  100% { background-color: transparent; }
 }

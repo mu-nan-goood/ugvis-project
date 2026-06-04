@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   fetchPlanningWeakAreas,
@@ -12,6 +12,7 @@ import StatsCards from './StatsCards'
 import LLMConfigPanel from './LLMConfigPanel'
 import AdvicePanel from './AdvicePanel'
 import WeakAreasTable from './WeakAreasTable'
+import { SkeletonCard, SkeletonTable } from '../../components/Skeleton'
 import AIChatDrawer from './AIChatDrawer'
 
 const PAGE_SIZE = 50
@@ -141,37 +142,25 @@ export default function Planning() {
   if (loading) {
     return (
       <div className="space-y-6">
-        {/* Skeleton for header */}
         <div className="flex items-center justify-between">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
+          <div className="h-8 w-48 bg-surface-200 dark:bg-surface-700 rounded animate-pulse" />
           <div className="flex gap-2">
-            <div className="h-10 w-32 bg-gray-200 rounded-lg animate-pulse" />
-            <div className="h-10 w-24 bg-gray-200 rounded-lg animate-pulse" />
-            <div className="h-10 w-24 bg-gray-200 rounded-lg animate-pulse" />
+            <div className="h-10 w-32 bg-surface-100 dark:bg-surface-800 rounded-lg animate-pulse" />
+            <div className="h-10 w-24 bg-surface-100 dark:bg-surface-800 rounded-lg animate-pulse" />
           </div>
         </div>
-        {/* Skeleton for stats cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="card animate-pulse">
-              <div className="h-4 w-24 bg-gray-200 rounded mb-3" />
-              <div className="h-8 w-16 bg-gray-200 rounded mb-2" />
-              <div className="h-3 w-32 bg-gray-200 rounded" />
-            </div>
-          ))}
+          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
         </div>
-        {/* Skeleton for table */}
-        <div className="card animate-pulse">
-          <div className="h-64 bg-gray-200 rounded" />
-        </div>
+        <SkeletonTable rows={8} />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="card bg-red-50 border-red-200">
-        <p className="text-red-600">加载失败: {error}</p>
+      <div className="card bg-danger-50 dark:bg-danger-900/20 border-danger-200 dark:border-danger-800">
+        <p className="text-danger-600 dark:text-danger-400">加载失败: {error}</p>
       </div>
     )
   }
@@ -250,7 +239,7 @@ export default function Planning() {
             <option value="rc4">支路</option>
           </select>
         </div>
-        <div className="ml-auto text-sm text-gray-500">
+        <div className="ml-auto text-sm text-surface-400 dark:text-surface-500">
           共 {totalCount} 条，第 {currentPage}/{totalPages} 页
         </div>
       </div>
@@ -280,7 +269,7 @@ export default function Planning() {
           >
             上一页
           </button>
-          <span className="px-3 py-1 text-sm text-gray-600">
+          <span className="px-3 py-1 text-sm text-surface-500 dark:text-surface-400">
             {currentPage} / {totalPages}
           </span>
           <button

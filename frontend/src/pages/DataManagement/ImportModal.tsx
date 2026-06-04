@@ -1,4 +1,4 @@
-import { useState, useRef, DragEvent } from 'react'
+﻿import { useState, useRef, DragEvent } from 'react'
 import { Upload, X, AlertCircle, CheckCircle2, FileText } from 'lucide-react'
 import { importPoints, type ImportResult, type ImportError } from '../../utils/api'
 
@@ -125,7 +125,7 @@ export default function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 ? 'border-primary-500 bg-primary-50'
                 : selectedFile
                 ? 'border-green-400 bg-green-50'
-                : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
+                : 'border-gray-300 hover:border-primary-400 hover:bg-surface-50 dark:bg-surface-800'
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
@@ -142,8 +142,8 @@ export default function ImportModal({ onClose, onSuccess }: ImportModalProps) {
             {selectedFile ? (
               <div className="space-y-1">
                 <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto" />
-                <p className="font-medium text-gray-700">{selectedFile.name}</p>
-                <p className="text-sm text-gray-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                <p className="font-medium text-surface-600 dark:text-surface-300">{selectedFile.name}</p>
+                <p className="text-sm text-surface-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
                 <button
                   onClick={(e) => { e.stopPropagation(); setSelectedFile(null); setResult(null) }}
                   className="text-sm text-red-500 hover:underline"
@@ -154,10 +154,10 @@ export default function ImportModal({ onClose, onSuccess }: ImportModalProps) {
             ) : (
               <div className="space-y-1">
                 <Upload className="w-10 h-10 text-gray-400 mx-auto" />
-                <p className="font-medium text-gray-600">
+                <p className="font-medium text-surface-500 dark:text-surface-400">
                   {dragOver ? '放开以上传' : '拖拽 CSV 文件到此处，或点击选择'}
                 </p>
-                <p className="text-sm text-gray-400">必需列：point_id, lat, lng</p>
+                <p className="text-sm text-surface-400">必需列：point_id, lat, lng</p>
               </div>
             )}
           </div>
@@ -165,7 +165,7 @@ export default function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           {/* 进度条 */}
           {uploading && (
             <div className="space-y-1">
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-surface-500 dark:text-surface-400">
                 <span>正在导入...</span>
                 <span>{progress}%</span>
               </div>
@@ -234,7 +234,7 @@ export default function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                     </tbody>
                   </table>
                   {result.errors.length > 20 && (
-                    <p className="text-xs text-gray-500 px-3 py-2 border-t bg-gray-50">
+                    <p className="text-xs text-gray-500 px-3 py-2 border-t bg-surface-50 dark:bg-surface-800">
                       仅显示前 20 条错误，共 {result.errors.length} 条
                     </p>
                   )}

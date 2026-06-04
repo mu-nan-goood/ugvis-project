@@ -37,6 +37,48 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return h
 }
 
+/**
+ * SSE-aware fetch wrapper: tries with current token, if 401 triggers refresh and retries once.
+ * Only use for SSE/streaming endpoints (which can't use axios interceptors natively).
+ */
+async function sseFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const response = await fetch(url, options)
+  if (response.status !== 401) return response
+
+  // 401 — try token refresh once
+  const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!refreshToken) {
+    clearAccessToken()
+    window.location.href = '/auth?reason=session_expired'
+    throw new Error('No refresh token available')
+  }
+
+  try {
+    const refreshResp = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!refreshResp.ok) {
+      clearAccessToken()
+      window.location.href = '/auth?reason=session_expired'
+      throw new Error('Refresh failed')
+    }
+    const data = await refreshResp.json()
+    setAccessToken(data.access_token)
+    if (data.refresh_token) {
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token)
+    }
+    // Retry original request with new token
+    const newHeaders = { ...(options.headers as Record<string, string> || {}), Authorization: `Bearer ${data.access_token}` }
+    return fetch(url, { ...options, headers: newHeaders })
+  } catch {
+    clearAccessToken()
+    window.location.href = '/auth?reason=session_expired'
+    throw new Error('Token refresh failed')
+  }
+}
+
 // ── 请求拦截器：自动注入 Bearer Token ───────────────────
 
 let isRefreshing = false
@@ -190,15 +232,73 @@ export async function fetchRoads(params?: {
   return data
 }
 
+// 3D 道路几何 GeoJSON
+export interface RoadGeoJSON {
+  type: 'FeatureCollection'
+  features: Array<{
+    type: 'Feature'
+    properties: {
+      id: number
+      name: string | null
+      road_type: string
+      avg_gvi: number | null
+    }
+    geometry: {
+      type: 'LineString'
+      coordinates: [number, number][]
+    }
+  }>
+  count: number
+}
+
+export async function fetchRoads3D(params?: {
+  road_type?: string
+  limit?: number
+}): Promise<RoadGeoJSON> {
+  const { data } = await api.get('/map/roads-3d', { params })
+  return data
+}
+
 // 季节分析
 export async function fetchSeasonalAnalysis() {
   const { data } = await api.get('/seasonal/analysis')
   return data
 }
 
+// 季节地图散点数据
+export async function fetchSeasonalMap(season: string = 'spring', sampleSize: number = 3000) {
+  const { data } = await api.get('/seasonal/map', {
+    params: { season, sample_size: sampleSize },
+  })
+  return data
+}
+
 // 空间分析（模型对比）
 export async function fetchAnalysisModels() {
   const { data } = await api.get('/analysis/models')
+  return data
+}
+
+// NDVI-GVI scatter data with regression lines
+export async function fetchAnalysisScatter(
+  season: string = 'spring',
+  sampleSize: number = 2000
+) {
+  const { data } = await api.get('/analysis/scatter', {
+    params: { season, sample_size: sampleSize },
+  })
+  return data
+}
+
+// 残差分析
+export async function fetchAnalysisResiduals(
+  modelType: string = 'mgwr',
+  season: string = 'spring',
+  sampleSize: number = 2000
+) {
+  const { data } = await api.get('/analysis/residuals', {
+    params: { model_type: modelType, season, sample_size: sampleSize },
+  })
   return data
 }
 
@@ -327,14 +427,13 @@ export async function generateAdvice(request: RenovationAdviceRequest) {
  * 流式生成 AI 改造建议（SSE）
  */
 export async function* streamAdvice(request: RenovationAdviceRequest): AsyncGenerator<ChatStreamEvent, void, unknown> {
-  const response = await fetch('/api/planning/stream', {
+  const response = await sseFetch('/api/planning/stream', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(request),
   })
 
   if (!response.ok) {
-    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 
@@ -353,14 +452,13 @@ export async function chat(request: ChatRequest) {
  * 流式多轮对话（SSE）
  */
 export async function* streamChat(request: ChatRequest): AsyncGenerator<ChatStreamEvent, void, unknown> {
-  const response = await fetch('/api/planning/chat-stream', {
+  const response = await sseFetch('/api/planning/chat-stream', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(request),
   })
 
   if (!response.ok) {
-    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 
@@ -496,14 +594,13 @@ export async function fetchExpertPanelExperts(): Promise<ExpertInfo[]> {
 export async function* streamExpertPanel(
   request: ChatRequest
 ): AsyncGenerator<ExpertPanelEvent, void, unknown> {
-  const response = await fetch('/api/planning/expert-panel', {
+  const response = await sseFetch('/api/planning/expert-panel', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(request),
   })
 
   if (!response.ok) {
-    if (response.status === 401) { clearAccessToken(); window.location.href = '/auth?reason=session_expired' }
     throw new Error(`HTTP ${response.status}`)
   }
 

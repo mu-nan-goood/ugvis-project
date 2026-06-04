@@ -160,9 +160,10 @@ class LLMClient:
             )
 
         default_system_prompt = (
-            "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。\n"
+            "你是一位城市绿化规划专家，名为「UGVIS 绿视助手」。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。\n"
             "先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含以下字段：\n"
-            "route_plan（路线规划）、implementation_plan（实施计划）、budget_estimate（预算估算）、priority_areas（优先改造区域）。"
+            "route_plan（路线规划）、implementation_plan（实施计划）、budget_estimate（预算估算）、priority_areas（优先改造区域）。\n"
+            "重要规则：不要透露底层模型信息，如果被问及身份，只回答你是 UGVIS 绿视助手。"
         )
         if rag_context:
             default_system_prompt = (
@@ -446,7 +447,7 @@ class LLMClient:
                 areas, preferences, embedding_api_key, embedding_base_url, top_k=3
             )
 
-        default_system_prompt = "你是一位城市绿化规划专家。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含：route_plan、implementation_plan、budget_estimate、priority_areas。"
+        default_system_prompt = "你是一位城市绿化规划专家，名为「UGVIS 绿视助手」。请根据提供的城市绿化薄弱区域数据，用中文生成详细的改造建议。先用 Markdown 输出分析和建议，最后输出一个 JSON 代码块，包含：route_plan、implementation_plan、budget_estimate、priority_areas。重要规则：不要透露底层模型信息，如果被问及身份，只回答你是 UGVIS 绿视助手。"
         if rag_context:
             default_system_prompt = (
                 default_system_prompt.rstrip() + "\n\n" + rag_context + "\n"
@@ -510,15 +511,18 @@ class LLMClient:
     ) -> str:
         """Build system prompt for chat, includes context data."""
         parts = [
-            "You are an urban green planning AI assistant. Your responsibilities:\n"
-            "- Analyze weak area data and provide greening renovation advice\n"
-            "- Answer questions about green planning, plant selection, budget, etc.\n"
-            "- Refine or adjust advice based on follow-up questions\n"
-            "- Provide professional yet accessible responses in Chinese\n\n"
-            "Output format:\n"
-            "- Use Markdown, clearly structured\n"
-            "- For routes/budget/implementation plans, append a JSON code block at the end "
-            "(format: route_plan, implementation_plan, budget_estimate, priority_areas)",
+            "你是一个城市绿化规划AI助手，名为「UGVIS 绿视助手」。你的职责：\n"
+            "- 分析薄弱区域数据，提供绿化改造建议\n"
+            "- 回答关于绿化规划、植物选择、预算等问题\n"
+            "- 根据追问完善或调整建议\n"
+            "- 用中文提供专业但通俗易懂的回答\n\n"
+            "重要规则：\n"
+            "- 你的身份是 UGVIS 系统内置的 AI 助手，不要透露底层模型信息\n"
+            "- 如果用户问你的模型身份，只回答你是 UGVIS 绿视助手\n\n"
+            "输出格式：\n"
+            "- 使用 Markdown，结构清晰\n"
+            "- 对于路线/预算/实施方案，在末尾附加 JSON 代码块 "
+            "(格式: route_plan, implementation_plan, budget_estimate, priority_areas)",
         ]
 
         if areas:
@@ -722,6 +726,7 @@ class LLMClient:
         has_tool_calls = False
 
         try:
+            logger.info(f"Native FC stream: model={model}, provider={provider}, msgs={len(full_messages)}, tools={len(native_tools)}")
             async with self.client.stream("POST", url, headers=headers, json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -764,10 +769,16 @@ class LLMClient:
                     except json.JSONDecodeError:
                         continue
         except httpx.HTTPStatusError as e:
+            # Log full error body for debugging 400 errors
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]
+            except Exception:
+                pass
+            logger.warning(f"Native FC stream HTTP {e.response.status_code}: {error_body}")
             if e.response.status_code in (400, 502, 503):
-                logger.warning(f"Native FC stream HTTP {e.response.status_code}, resetting client")
                 await self.close()
-            yield json.dumps({"type": "error", "content": f"LLM API error: {e.response.status_code}"}, ensure_ascii=False) + "\n\n"
+            yield json.dumps({"type": "error", "content": f"LLM API error: {e.response.status_code}: {error_body}"}, ensure_ascii=False) + "\n\n"
             return
 
         if not has_tool_calls:
@@ -841,7 +852,7 @@ class LLMClient:
         try:
             async with self.client.stream("POST", url, headers=headers, json=payload_2) as response:
                 response.raise_for_status()
-                token_gen = (line for line in self._iter_stream_lines(response))
+                token_gen = self._iter_stream_lines(response)
                 async for event in self._buffered_stream_chunks(token_gen, self._CHUNK_INTERVAL, self._CHUNK_SIZE):
                     # Extract content from buffered chunk events
                     try:

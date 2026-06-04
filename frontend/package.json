@@ -13,10 +13,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.61.0",
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.0",
     "cesium": "^1.141.0",
     "echarts": "^5.4.3",
+    "framer-motion": "^11.18.2",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "lucide-react": "^0.294.0",
@@ -42,7 +44,7 @@
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "eslint": "^8.55.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.5.2",
     "jsdom": "^29.1.1",
     "typescript": "^5.2.2",
